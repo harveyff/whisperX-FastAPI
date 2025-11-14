@@ -33,7 +33,8 @@ COPY app/gunicorn_logging.conf .
 # Install Python dependencies using UV with pyproject.toml
 # UV automatically selects CUDA 12.8 wheels on Linux (compatible with CUDA 13.0 runtime)
 # Note: For RTX 5090 support, we upgrade PyTorch to latest version after initial install
-RUN uv sync --frozen --no-dev \
+# Use --system to install packages to system Python instead of virtual environment
+RUN uv sync --frozen --no-dev --system \
     && uv pip install --system ctranslate2==4.6.0 \
     && uv pip install --system --upgrade --index-url https://download.pytorch.org/whl/cu128 torch torchvision torchaudio \
     && rm -rf /root/.cache /tmp/* /root/.uv /var/cache/* \
@@ -43,4 +44,5 @@ RUN uv sync --frozen --no-dev \
 
 EXPOSE 8000
 
-ENTRYPOINT ["gunicorn", "--bind", "0.0.0.0:8000", "--workers", "1", "--timeout", "0", "--log-config", "gunicorn_logging.conf", "app.main:app", "-k", "uvicorn.workers.UvicornWorker"]
+# Use python -m gunicorn to ensure gunicorn is found in system Python
+ENTRYPOINT ["python", "-m", "gunicorn", "--bind", "0.0.0.0:8000", "--workers", "1", "--timeout", "0", "--log-config", "gunicorn_logging.conf", "app.main:app", "-k", "uvicorn.workers.UvicornWorker"]
