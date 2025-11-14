@@ -39,8 +39,9 @@ COPY app/gunicorn_logging.conf .
 
 # Install Python dependencies using UV with pyproject.toml
 # UV automatically selects CUDA 12.8 wheels on Linux (compatible with CUDA 13.0 runtime)
-# Use --system to install packages to system Python instead of virtual environment
-RUN uv sync --frozen --no-dev --system \
+# Use uv pip install to install project and dependencies directly to system Python
+# Note: uv pip install . will install the project with all dependencies from pyproject.toml
+RUN uv pip install --system . \
     && uv pip install --system ctranslate2==4.6.0
 
 # Install PyTorch - use nightly for RTX 5090 support if requested
