@@ -1,17 +1,24 @@
 FROM nvidia/cuda:13.0.1-base-ubuntu22.04
 
+# Build argument to choose PyTorch version (stable or nightly for RTX 5090)
+ARG USE_PYTORCH_NIGHTLY=false
+
 ENV PYTHON_VERSION=3.11
 ENV LD_LIBRARY_PATH=/usr/local/cuda/lib64:/usr/lib/x86_64-linux-gnu:$LD_LIBRARY_PATH
 
 # Install dependencies and clean up in the same layer
+# Fix dpkg configuration issues by running configure first
 # hadolint ignore=DL3008
 RUN export DEBIAN_FRONTEND=noninteractive \
     && apt-get -y update \
+    && dpkg --configure -a || true \
     && apt-get -y install --no-install-recommends \
-    python3.11=3.11.0~rc1-1~22.04 \
+    python3.11 \
+    python3.11-dev \
+    python3-pip \
     git \
-    ffmpeg=7:4.4.2-0ubuntu0.22.04.1 \
-    libcudnn9-cuda-12=9.8.0.87-1 \
+    ffmpeg \
+    libcudnn9-cuda-12 \
     libatomic1 \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/* \
@@ -32,11 +39,19 @@ COPY app/gunicorn_logging.conf .
 
 # Install Python dependencies using UV with pyproject.toml
 # UV automatically selects CUDA 12.8 wheels on Linux (compatible with CUDA 13.0 runtime)
-# Note: For RTX 5090 support, we upgrade PyTorch to latest version after initial install
 # Use --system to install packages to system Python instead of virtual environment
 RUN uv sync --frozen --no-dev --system \
-    && uv pip install --system ctranslate2==4.6.0 \
-    && uv pip install --system --upgrade --index-url https://download.pytorch.org/whl/cu128 torch torchvision torchaudio \
+    && uv pip install --system ctranslate2==4.6.0
+
+# Install PyTorch - use nightly for RTX 5090 support if requested
+RUN if [ "$USE_PYTORCH_NIGHTLY" = "true" ]; then \
+        echo "Installing PyTorch nightly for RTX 5090 support..." \
+        && uv pip uninstall --system -y torch torchvision torchaudio || true \
+        && uv pip install --system --pre --index-url https://download.pytorch.org/whl/nightly/cu128 torch torchvision torchaudio; \
+    else \
+        echo "Upgrading PyTorch to latest stable version..." \
+        && uv pip install --system --upgrade --index-url https://download.pytorch.org/whl/cu128 torch torchvision torchaudio; \
+    fi \
     && rm -rf /root/.cache /tmp/* /root/.uv /var/cache/* \
     && find /usr/local -type d -name '__pycache__' -exec rm -rf {} + 2>/dev/null || true \
     && find /usr/local -type f -name '*.pyc' -delete \

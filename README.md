@@ -197,7 +197,7 @@ The API will be accessible at <http://127.0.0.1:8000>.
 >
 > **Important:** For GPU support in Docker, you must have **CUDA drivers 12.8+ installed on your host system** (CUDA 13.0 runtime is compatible).
 >
-> **RTX 5090 Users:** The standard `dockerfile` automatically upgrades PyTorch to the latest version for RTX 5090 support. If you still encounter CUDA compatibility issues, use `dockerfile.rtx5090` which uses PyTorch nightly builds. See [Docker Build Guide for RTX 5090](docs/DOCKER_BUILD_RTX5090.md) for details.
+> **RTX 5090 Users:** The standard `dockerfile` automatically upgrades PyTorch to the latest version. If you still encounter CUDA compatibility issues, build with `--build-arg USE_PYTORCH_NIGHTLY=true` to use PyTorch nightly builds. See [Docker Build Guide for RTX 5090](docs/DOCKER_BUILD_RTX5090.md) for details.
 
 #### Model cache
 
@@ -236,7 +236,7 @@ The models used by whisperX are stored in `root/.cache`, if you want to avoid do
 6. **RTX 5090 CUDA Compatibility Issues**
    - If you encounter "no kernel image is available for execution on the device" error on RTX 5090:
      - RTX 5090 uses compute capability 12.0 (sm_120), which requires PyTorch 2.8.0+
-     - **For Docker builds**: The standard `dockerfile` now automatically upgrades PyTorch. If issues persist, use `dockerfile.rtx5090` with PyTorch nightly
+     - **For Docker builds**: The standard `dockerfile` automatically upgrades PyTorch. If issues persist, build with `--build-arg USE_PYTORCH_NIGHTLY=true` to use PyTorch nightly
      - **For local development**: Upgrade PyTorch: `pip install --upgrade torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128`
      - Or try PyTorch nightly: `pip install --pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cu128`
      - Run the diagnostic script: `python scripts/check_cuda_compatibility.py`
