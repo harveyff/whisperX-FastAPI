@@ -102,7 +102,8 @@ Set default model in `.env` using `WHISPER_MODEL=` (default: tiny)
 
 ## System Requirements
 
-- NVIDIA GPU with CUDA 12.8+ support
+- NVIDIA GPU with CUDA 12.8+ support (CUDA 13.0 runtime is compatible)
+  - **Note for RTX 5090 users**: Ensure PyTorch 2.8.0+ is installed for compute capability 12.0 support
 - At least 8GB RAM (16GB+ recommended for large models)
 - Storage space for models (varies by model size):
   - tiny/base: ~1GB
@@ -194,7 +195,9 @@ The API will be accessible at <http://127.0.0.1:8000>.
 > **Note:** The Docker build uses `uv` for installing dependencies, as specified in the Dockerfile.
 > The main entrypoint for the Docker container is via **Gunicorn** (not Uvicorn directly), using the configuration in `app/gunicorn_logging.conf`.
 >
-> **Important:** For GPU support in Docker, you must have **CUDA drivers 12.8+ installed on your host system**.
+> **Important:** For GPU support in Docker, you must have **CUDA drivers 12.8+ installed on your host system** (CUDA 13.0 runtime is compatible).
+>
+> **RTX 5090 Users:** The standard `dockerfile` automatically upgrades PyTorch to the latest version for RTX 5090 support. If you still encounter CUDA compatibility issues, use `dockerfile.rtx5090` which uses PyTorch nightly builds. See [Docker Build Guide for RTX 5090](docs/DOCKER_BUILD_RTX5090.md) for details.
 
 #### Model cache
 
@@ -229,6 +232,15 @@ The models used by whisperX are stored in `root/.cache`, if you want to avoid do
 
 5. **Warnings Not Filtered**
    - Ensure the `FILTER_WARNING` environment variable is set to `true` in the `.env` file.
+
+6. **RTX 5090 CUDA Compatibility Issues**
+   - If you encounter "no kernel image is available for execution on the device" error on RTX 5090:
+     - RTX 5090 uses compute capability 12.0 (sm_120), which requires PyTorch 2.8.0+
+     - **For Docker builds**: The standard `dockerfile` now automatically upgrades PyTorch. If issues persist, use `dockerfile.rtx5090` with PyTorch nightly
+     - **For local development**: Upgrade PyTorch: `pip install --upgrade torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128`
+     - Or try PyTorch nightly: `pip install --pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cu128`
+     - Run the diagnostic script: `python scripts/check_cuda_compatibility.py`
+     - See [RTX 5090 Troubleshooting Guide](docs/TROUBLESHOOTING_RTX5090.md) and [Docker Build Guide](docs/DOCKER_BUILD_RTX5090.md) for detailed instructions
 
 ### Logs and Debugging
 

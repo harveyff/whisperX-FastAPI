@@ -31,9 +31,11 @@ COPY tests tests/
 COPY app/gunicorn_logging.conf .
 
 # Install Python dependencies using UV with pyproject.toml
-# UV automatically selects CUDA 12.8 wheels on Linux
+# UV automatically selects CUDA 12.8 wheels on Linux (compatible with CUDA 13.0 runtime)
+# Note: For RTX 5090 support, we upgrade PyTorch to latest version after initial install
 RUN uv sync --frozen --no-dev \
     && uv pip install --system ctranslate2==4.6.0 \
+    && uv pip install --system --upgrade --index-url https://download.pytorch.org/whl/cu128 torch torchvision torchaudio \
     && rm -rf /root/.cache /tmp/* /root/.uv /var/cache/* \
     && find /usr/local -type d -name '__pycache__' -exec rm -rf {} + 2>/dev/null || true \
     && find /usr/local -type f -name '*.pyc' -delete \

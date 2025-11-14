@@ -39,9 +39,9 @@ dependencies = [
     "tqdm==4.67.1",
     "uvicorn==0.38.0",
     "whisperx==3.7.2",
-    "torch<=2.8.0",
-    "torchaudio<=2.8.0",
-    "torchvision<=0.23.0",
+    "torch>=2.8.0",
+    "torchaudio>=2.8.0",
+    "torchvision>=0.23.0",
     "setuptools>=78.1.1",  # CVE-2025-47273 fix
 ]
 
@@ -61,7 +61,8 @@ dev = [
 
 [tool.uv]
 # PyTorch index configuration with environment markers for platform-specific builds
-# CUDA 12.6 on Linux, CPU-only on Windows and macOS
+# CUDA 12.8 on Linux (compatible with CUDA 13.0 runtime), CPU-only on Windows and macOS
+# Note: For RTX 5090 (compute capability 12.0), ensure PyTorch 2.8.0+ is installed
 
 [tool.uv.sources]
 torch = [
@@ -80,6 +81,8 @@ triton = [
 
 [[tool.uv.index]]
 name = "pytorch"
+# CUDA 12.8 wheels are compatible with CUDA 13.0 runtime
+# For RTX 5090 support, use latest PyTorch 2.8.0+ from this index
 url = "https://download.pytorch.org/whl/cu128"
 explicit = true
 
