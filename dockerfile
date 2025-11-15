@@ -45,14 +45,18 @@ RUN uv pip install --system . \
     && uv pip install --system ctranslate2==4.6.0
 
 # Install PyTorch - use nightly for RTX 5090 support if requested
+# Important: Only upgrade torch and torchvision, keep torchaudio version from pyproject.toml
+# to maintain compatibility with pyannote.audio which requires torchaudio.AudioMetaData
 RUN if [ "$USE_PYTORCH_NIGHTLY" = "true" ]; then \
         echo "Installing PyTorch nightly for RTX 5090 support..." \
-        && uv pip uninstall --system -y torch torchvision torchaudio || true \
-        && uv pip install --system --pre --index-url https://download.pytorch.org/whl/nightly/cu128 torch torchvision torchaudio; \
+        && uv pip uninstall --system -y torch torchvision || true \
+        && uv pip install --system --pre --index-url https://download.pytorch.org/whl/nightly/cu128 torch torchvision; \
     else \
-        echo "Upgrading PyTorch to latest stable version..." \
-        && uv pip install --system --upgrade --index-url https://download.pytorch.org/whl/cu128 torch torchvision torchaudio; \
+        echo "Upgrading PyTorch to latest stable version (keeping torchaudio from dependencies)..." \
+        && uv pip uninstall --system -y torch torchvision || true \
+        && uv pip install --system --index-url https://download.pytorch.org/whl/cu128 torch torchvision; \
     fi \
+    && python -c "import torch; import torchaudio; print(f'PyTorch: {torch.__version__}, torchaudio: {torchaudio.__version__}')" \
     && rm -rf /root/.cache /tmp/* /root/.uv /var/cache/* \
     && find /usr/local -type d -name '__pycache__' -exec rm -rf {} + 2>/dev/null || true \
     && find /usr/local -type f -name '*.pyc' -delete \
