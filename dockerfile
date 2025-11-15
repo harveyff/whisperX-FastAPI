@@ -36,12 +36,18 @@ RUN export DEBIAN_FRONTEND=noninteractive \
     && ln -s -f /usr/bin/python${PYTHON_VERSION} /usr/bin/python
 
 # Install latest NCCL from NVIDIA repository (needed for PyTorch 2.8+)
+# PyTorch 2.8 requires NCCL 2.18+ which includes ncclGroupSimulateEnd symbol
+# Install binutils for symbol checking
+# If repository version is too old, we'll try to install from NVIDIA directly
 RUN export DEBIAN_FRONTEND=noninteractive \
     && apt-get -y update \
-    && apt-get -y install --no-install-recommends libnccl2 libnccl-dev \
+    && apt-get -y install --no-install-recommends libnccl2 libnccl-dev binutils \
+    && NCCL_VERSION=$(dpkg -l | grep libnccl2 | awk '{print $3}' | cut -d'+' -f1) \
+    && echo "Installed NCCL version: $NCCL_VERSION" \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/* \
-    && ldconfig
+    && ldconfig \
+    && echo "NCCL library location:" && find /usr -name "libnccl.so*" 2>/dev/null | head -5
 
 # Install UV for package management
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
@@ -86,24 +92,48 @@ RUN if [ "$USE_PYTORCH_NIGHTLY" = "true" ]; then \
     && python -c "import torchaudio; assert hasattr(torchaudio, 'AudioMetaData'), 'AudioMetaData not found in torchaudio'; print('✓ AudioMetaData available')" \
     && python -c "import torch; import os; torch_lib = os.path.join(os.path.dirname(torch.__file__), 'lib'); print(f'PyTorch lib path: {torch_lib}'); import glob; nccl_libs = glob.glob(os.path.join(torch_lib, '*nccl*')); print(f'NCCL libraries in PyTorch: {nccl_libs}')" \
     && ldconfig \
+    && echo "Verifying NCCL symbols..." \
+    && nm -D /usr/lib/x86_64-linux-gnu/libnccl.so.2 2>/dev/null | grep -i "ncclGroupSimulateEnd" || echo "Warning: ncclGroupSimulateEnd not found in system NCCL" \
     && rm -rf /root/.cache /tmp/* /root/.uv /var/cache/* \
     && find /usr/local -type d -name '__pycache__' -exec rm -rf {} + 2>/dev/null || true \
     && find /usr/local -type f -name '*.pyc' -delete \
     && find /usr/local -type f -name '*.pyo' -delete
 
 # Create startup script that sets environment variables before starting gunicorn
-# Ensure system NCCL libraries are found and PyTorch can use them
-RUN echo '#!/bin/bash\n\
-# Update library cache\n\
-ldconfig\n\
-# Set LD_LIBRARY_PATH to include system NCCL and PyTorch libraries\n\
-export LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu:/usr/local/lib/python3.11/dist-packages/torch/lib:/usr/local/cuda/lib64:$LD_LIBRARY_PATH\n\
-# Verify NCCL is available\n\
-if [ -f "/usr/lib/x86_64-linux-gnu/libnccl.so.2" ]; then\n\
-    echo "System NCCL library found"\n\
-fi\n\
-exec python -m gunicorn --bind 0.0.0.0:8000 --workers 1 --timeout 0 --log-config gunicorn_logging.conf app.main:app -k uvicorn.workers.UvicornWorker "$@"' > /usr/local/bin/start.sh \
-    && chmod +x /usr/local/bin/start.sh
+# Intelligently handle NCCL library loading to avoid symbol errors
+RUN cat > /usr/local/bin/start.sh << 'EOF'
+#!/bin/bash
+# Update library cache
+ldconfig
+
+# Find NCCL libraries
+TORCH_LIB="/usr/local/lib/python3.11/dist-packages/torch/lib"
+SYSTEM_NCCL="/usr/lib/x86_64-linux-gnu/libnccl.so.2"
+
+# Check if system NCCL has the required symbol
+if [ -f "$SYSTEM_NCCL" ]; then
+    if nm -D "$SYSTEM_NCCL" 2>/dev/null | grep -q "ncclGroupSimulateEnd"; then
+        echo "System NCCL has required symbol, using system NCCL"
+        export LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu:$TORCH_LIB:/usr/local/cuda/lib64:$LD_LIBRARY_PATH
+    elif [ -d "$TORCH_LIB" ] && ls "$TORCH_LIB"/libnccl*.so* 1> /dev/null 2>&1; then
+        echo "System NCCL missing symbol, trying PyTorch bundled NCCL"
+        export LD_LIBRARY_PATH=$TORCH_LIB:/usr/lib/x86_64-linux-gnu:/usr/local/cuda/lib64:$LD_LIBRARY_PATH
+    else
+        echo "Warning: No suitable NCCL found, using system NCCL anyway"
+        export LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu:$TORCH_LIB:/usr/local/cuda/lib64:$LD_LIBRARY_PATH
+    fi
+else
+    echo "System NCCL not found, using PyTorch bundled NCCL if available"
+    export LD_LIBRARY_PATH=$TORCH_LIB:/usr/local/cuda/lib64:$LD_LIBRARY_PATH
+fi
+
+# Set NCCL environment variables for single GPU inference
+export NCCL_P2P_DISABLE=1
+export NCCL_SHM_DISABLE=1
+
+exec python -m gunicorn --bind 0.0.0.0:8000 --workers 1 --timeout 0 --log-config gunicorn_logging.conf app.main:app -k uvicorn.workers.UvicornWorker "$@"
+EOF
+chmod +x /usr/local/bin/start.sh
 
 EXPOSE 8000
 
