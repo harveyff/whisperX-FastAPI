@@ -8,6 +8,7 @@ ENV PYTHON_VERSION=3.11
 # LD_LIBRARY_PATH will be set after NCCL installation to ensure correct library is found
 # System NCCL (if version 2.18+) takes priority, then PyTorch bundled libraries
 ENV LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu:/usr/local/cuda/lib64:/usr/local/lib
+# LD_PRELOAD will be set by startup script based on build-time detection
 
 # Install dependencies and clean up in the same layer
 # Fix dpkg configuration issues by running configure first
@@ -124,19 +125,43 @@ RUN if [ "$USE_PYTORCH_NIGHTLY" = "true" ]; then \
     && TORCH_LIB="/usr/local/lib/python3.11/dist-packages/torch/lib" \
     && SYSTEM_NCCL="/usr/lib/x86_64-linux-gnu/libnccl.so.2" \
     && NCCL_TO_USE="" \
-    && if [ -f "$SYSTEM_NCCL" ] && nm -D "$SYSTEM_NCCL" 2>/dev/null | grep -q "ncclGroupSimulateEnd"; then \
-        echo "✓ Using system NCCL (has required symbol)" \
-        && NCCL_TO_USE="$SYSTEM_NCCL" \
-        && echo "$SYSTEM_NCCL" > /etc/pytorch_nccl_lib.txt; \
-    elif [ -d "$TORCH_LIB" ] && ls "$TORCH_LIB"/libnccl*.so* 1> /dev/null 2>&1; then \
-        NCCL_TO_USE=$(ls "$TORCH_LIB"/libnccl*.so* 2>/dev/null | head -1) \
-        && echo "✓ Using PyTorch bundled NCCL: $NCCL_TO_USE" \
-        && echo "$NCCL_TO_USE" > /etc/pytorch_nccl_lib.txt; \
+    && echo "Checking system NCCL..." \
+    && if [ -f "$SYSTEM_NCCL" ]; then \
+        if nm -D "$SYSTEM_NCCL" 2>/dev/null | grep -q "ncclGroupSimulateEnd"; then \
+            echo "✓ System NCCL has required symbol" \
+            && NCCL_TO_USE="$SYSTEM_NCCL" \
+            && echo "$SYSTEM_NCCL" > /etc/pytorch_nccl_lib.txt; \
+        else \
+            echo "✗ System NCCL missing symbol"; \
+        fi; \
     else \
-        echo "ERROR: No compatible NCCL found!" \
+        echo "✗ System NCCL not found"; \
+    fi \
+    && if [ -z "$NCCL_TO_USE" ] && [ -d "$TORCH_LIB" ]; then \
+        echo "Checking PyTorch bundled NCCL..." \
+        && for nccl_file in "$TORCH_LIB"/libnccl*.so*; do \
+            if [ -f "$nccl_file" ]; then \
+                echo "Found PyTorch NCCL: $nccl_file" \
+                && if nm -D "$nccl_file" 2>/dev/null | grep -q "ncclGroupSimulateEnd"; then \
+                    echo "✓ PyTorch bundled NCCL has required symbol" \
+                    && NCCL_TO_USE="$nccl_file" \
+                    && echo "$nccl_file" > /etc/pytorch_nccl_lib.txt \
+                    && break; \
+                else \
+                    echo "✗ PyTorch bundled NCCL missing symbol: $nccl_file"; \
+                fi; \
+            fi; \
+        done; \
+    fi \
+    && if [ -z "$NCCL_TO_USE" ]; then \
+        echo "ERROR: No compatible NCCL found with ncclGroupSimulateEnd symbol!" \
+        && echo "System NCCL: $([ -f "$SYSTEM_NCCL" ] && echo "exists" || echo "not found")" \
+        && echo "PyTorch NCCL: $([ -d "$TORCH_LIB" ] && ls "$TORCH_LIB"/libnccl*.so* 2>/dev/null | head -1 || echo "not found")" \
         && exit 1; \
     fi \
     && echo "NCCL library to use: $(cat /etc/pytorch_nccl_lib.txt)" \
+    && echo "Verifying NCCL symbol in selected library..." \
+    && nm -D "$(cat /etc/pytorch_nccl_lib.txt)" 2>/dev/null | grep "ncclGroupSimulateEnd" || echo "WARNING: Symbol verification failed" \
     && rm -rf /root/.cache /tmp/* /root/.uv /var/cache/* \
     && find /usr/local -type d -name '__pycache__' -exec rm -rf {} + 2>/dev/null || true \
     && find /usr/local -type f -name '*.pyc' -delete \
@@ -157,19 +182,35 @@ if [ -f /etc/pytorch_nccl_lib.txt ]; then
     NCCL_LIB=$(cat /etc/pytorch_nccl_lib.txt)
     if [ -f "$NCCL_LIB" ]; then
         echo "Using build-time determined NCCL library: $NCCL_LIB"
+        # Set LD_PRELOAD before any Python process starts
         export LD_PRELOAD="$NCCL_LIB"
         NCCL_DIR=$(dirname "$NCCL_LIB")
         TORCH_LIB="/usr/local/lib/python3.11/dist-packages/torch/lib"
         export LD_LIBRARY_PATH="$NCCL_DIR:$TORCH_LIB:/usr/local/cuda/lib64:$LD_LIBRARY_PATH"
-        # Skip runtime detection and go directly to testing
+        
+        # Verify the symbol is present
+        echo "Verifying NCCL symbol..."
+        if ! nm -D "$NCCL_LIB" 2>/dev/null | grep -q "ncclGroupSimulateEnd"; then
+            echo "ERROR: Selected NCCL library does not contain ncclGroupSimulateEnd symbol!"
+            echo "Library: $NCCL_LIB"
+            exit 1
+        fi
+        echo "✓ NCCL symbol verified"
+        
+        # Test PyTorch import with LD_PRELOAD set
         echo "Testing PyTorch import with build-time NCCL..."
-        python -c "import torch; print(f'✓ PyTorch {torch.__version__} imported successfully')" || {
+        env LD_PRELOAD="$NCCL_LIB" python -c "import torch; print(f'✓ PyTorch {torch.__version__} imported successfully')" || {
             echo "ERROR: PyTorch import failed with build-time NCCL"
+            echo "LD_PRELOAD: $LD_PRELOAD"
+            echo "LD_LIBRARY_PATH: $LD_LIBRARY_PATH"
             exit 1
         }
+        
         export NCCL_P2P_DISABLE=1
         export NCCL_SHM_DISABLE=1
-        exec python -m gunicorn --bind 0.0.0.0:8000 --workers 1 --timeout 0 --log-config gunicorn_logging.conf app.main:app -k uvicorn.workers.UvicornWorker "$@"
+        
+        # Use env to ensure LD_PRELOAD is set when Python starts
+        exec env LD_PRELOAD="$NCCL_LIB" python -m gunicorn --bind 0.0.0.0:8000 --workers 1 --timeout 0 --log-config gunicorn_logging.conf app.main:app -k uvicorn.workers.UvicornWorker "$@"
     fi
 fi
 
