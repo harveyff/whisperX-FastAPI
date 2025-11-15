@@ -5,9 +5,9 @@ FROM nvidia/cuda:13.0.1-runtime-ubuntu22.04
 ARG USE_PYTORCH_NIGHTLY=false
 
 ENV PYTHON_VERSION=3.11
-# Set LD_LIBRARY_PATH to prioritize PyTorch's bundled NCCL libraries
-# PyTorch includes its own NCCL libraries that are compatible
-ENV LD_LIBRARY_PATH=/usr/local/lib/python3.11/dist-packages/torch/lib:/usr/local/cuda/lib64:/usr/lib/x86_64-linux-gnu:/usr/local/lib:$LD_LIBRARY_PATH
+# LD_LIBRARY_PATH will be set after NCCL installation to ensure correct library is found
+# System NCCL (if version 2.18+) takes priority, then PyTorch bundled libraries
+ENV LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu:/usr/local/cuda/lib64:/usr/local/lib
 
 # Install dependencies and clean up in the same layer
 # Fix dpkg configuration issues by running configure first
@@ -38,31 +38,44 @@ RUN export DEBIAN_FRONTEND=noninteractive \
 
 # Install latest NCCL from NVIDIA repository (needed for PyTorch 2.8+)
 # PyTorch 2.8 requires NCCL 2.18+ which includes ncclGroupSimulateEnd symbol
-# Install binutils for symbol checking
-# Try to install the latest available version, or download from NVIDIA if needed
+# Try multiple methods to get compatible NCCL version
 RUN export DEBIAN_FRONTEND=noninteractive \
     && apt-get -y update \
-    && apt-get -y install --no-install-recommends libnccl2 libnccl-dev binutils wget \
-    && NCCL_VERSION=$(dpkg -l | grep libnccl2 | awk '{print $3}' | cut -d'+' -f1) \
-    && echo "Installed NCCL version from repo: $NCCL_VERSION" \
-    && MAJOR_VERSION=$(echo "$NCCL_VERSION" | cut -d'.' -f1) \
-    && MINOR_VERSION=$(echo "$NCCL_VERSION" | cut -d'.' -f2) \
-    && if [ "$MAJOR_VERSION" -lt 2 ] || ([ "$MAJOR_VERSION" -eq 2 ] && [ "$MINOR_VERSION" -lt 18 ]); then \
-        echo "NCCL version too old (< 2.18), attempting to install from NVIDIA..." \
-        && cd /tmp \
-        && wget -q https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/libnccl2_2.19.3-1+cuda12.0_amd64.deb || \
-        wget -q https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/libnccl2_2.18.5-1+cuda12.0_amd64.deb || \
-        echo "Could not download newer NCCL, using repository version" \
-        && if [ -f /tmp/libnccl2_*.deb ]; then \
-            dpkg -i /tmp/libnccl2_*.deb || true \
-            && rm -f /tmp/libnccl2_*.deb; \
-        fi; \
-    fi \
+    && apt-get -y install --no-install-recommends binutils wget \
+    && echo "Attempting to install NCCL 2.18+..." \
+    && (apt-get -y install --no-install-recommends libnccl2=2.19.3-1+cuda12.0 2>&1 || \
+        apt-get -y install --no-install-recommends libnccl2=2.18.5-1+cuda12.0 2>&1 || \
+        apt-get -y install --no-install-recommends libnccl2=2.18.3-1+cuda12.0 2>&1 || \
+        (echo "Trying to download and install NCCL 2.19.3 directly..." \
+         && cd /tmp \
+         && wget -q --no-check-certificate https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/libnccl2_2.19.3-1+cuda12.0_amd64.deb 2>&1 || \
+         wget -q --no-check-certificate https://developer.download.nvidia.com/compute/machine-learning/repos/ubuntu2204/x86_64/libnccl2_2.19.3-1+cuda12.0_amd64.deb 2>&1 || true \
+         && if [ -f /tmp/libnccl2_*.deb ]; then \
+             dpkg -i /tmp/libnccl2_*.deb || apt-get install -f -y || true \
+             && rm -f /tmp/libnccl2_*.deb; \
+         fi) || \
+        apt-get -y install --no-install-recommends libnccl2 || true) \
+    && apt-get -y install --no-install-recommends libnccl-dev || true \
+    && NCCL_VERSION=$(dpkg -l | grep "^ii.*libnccl2" | awk '{print $3}' | cut -d'+' -f1 2>/dev/null || echo "unknown") \
+    && echo "Installed NCCL version: $NCCL_VERSION" \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/* \
     && ldconfig \
-    && echo "Final NCCL version:" && dpkg -l | grep libnccl2 || echo "NCCL not found in dpkg" \
-    && echo "NCCL library location:" && find /usr -name "libnccl.so*" 2>/dev/null | head -5
+    && echo "Verifying NCCL installation..." \
+    && find /usr -name "libnccl.so*" 2>/dev/null | head -5 \
+    && if [ -f "/usr/lib/x86_64-linux-gnu/libnccl.so.2" ]; then \
+        echo "Checking for ncclGroupSimulateEnd symbol..." \
+        && if nm -D /usr/lib/x86_64-linux-gnu/libnccl.so.2 2>/dev/null | grep -q "ncclGroupSimulateEnd"; then \
+            echo "✓ Symbol found in system NCCL - version is compatible" \
+            && echo "/usr/lib/x86_64-linux-gnu" > /tmp/nccl_lib_path.txt; \
+        else \
+            echo "✗ Symbol NOT found in system NCCL" \
+            && echo "" > /tmp/nccl_lib_path.txt; \
+        fi; \
+    else \
+        echo "System NCCL library not found" \
+        && echo "" > /tmp/nccl_lib_path.txt; \
+    fi
 
 # Install UV for package management
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
@@ -107,8 +120,15 @@ RUN if [ "$USE_PYTORCH_NIGHTLY" = "true" ]; then \
     && python -c "import torchaudio; assert hasattr(torchaudio, 'AudioMetaData'), 'AudioMetaData not found in torchaudio'; print('✓ AudioMetaData available')" \
     && python -c "import torch; import os; torch_lib = os.path.join(os.path.dirname(torch.__file__), 'lib'); print(f'PyTorch lib path: {torch_lib}'); import glob; nccl_libs = glob.glob(os.path.join(torch_lib, '*nccl*')); print(f'NCCL libraries in PyTorch: {nccl_libs}')" \
     && ldconfig \
-    && echo "Verifying NCCL symbols..." \
-    && nm -D /usr/lib/x86_64-linux-gnu/libnccl.so.2 2>/dev/null | grep -i "ncclGroupSimulateEnd" || echo "Warning: ncclGroupSimulateEnd not found in system NCCL" \
+    && echo "Final NCCL verification after PyTorch installation..." \
+    && if [ -f "/tmp/nccl_lib_path.txt" ] && [ -s "/tmp/nccl_lib_path.txt" ]; then \
+        NCCL_PATH=$(cat /tmp/nccl_lib_path.txt) \
+        && echo "System NCCL is compatible, will use: $NCCL_PATH" \
+        && echo "export LD_LIBRARY_PATH=$NCCL_PATH:/usr/local/lib/python3.11/dist-packages/torch/lib:/usr/local/cuda/lib64:\$LD_LIBRARY_PATH" > /etc/profile.d/pytorch_nccl.sh; \
+    else \
+        echo "System NCCL not compatible, will try PyTorch bundled NCCL" \
+        && echo "export LD_LIBRARY_PATH=/usr/local/lib/python3.11/dist-packages/torch/lib:/usr/lib/x86_64-linux-gnu:/usr/local/cuda/lib64:\$LD_LIBRARY_PATH" > /etc/profile.d/pytorch_nccl.sh; \
+    fi \
     && rm -rf /root/.cache /tmp/* /root/.uv /var/cache/* \
     && find /usr/local -type d -name '__pycache__' -exec rm -rf {} + 2>/dev/null || true \
     && find /usr/local -type f -name '*.pyc' -delete \
