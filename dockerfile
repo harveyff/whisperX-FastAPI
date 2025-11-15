@@ -44,21 +44,24 @@ RUN uv pip install --system . \
     && uv pip install --system ctranslate2==4.6.0
 
 # Fix torchaudio compatibility with pyannote.audio
-# pyannote.audio requires torchaudio with AudioMetaData (removed in torchaudio 2.4+)
-# Install compatible torchaudio version (2.3.1 has AudioMetaData and works with PyTorch 2.8)
-RUN echo "Fixing torchaudio compatibility..." \
-    && uv pip uninstall --system -y torchaudio || true \
-    && uv pip install --system --index-url https://download.pytorch.org/whl/cu128 "torchaudio==2.3.1"
+# pyannote.audio requires torchaudio with AudioMetaData (available in torchaudio < 2.4)
+# Try installing compatible version from CUDA 11.8 or 12.1 index (compatible with CUDA 12.8 runtime)
+RUN echo "Fixing torchaudio compatibility for pyannote.audio..." \
+    && uv pip uninstall --system torchaudio || true \
+    && (uv pip install --system --index-url https://download.pytorch.org/whl/cu118 "torchaudio==2.3.1+cu118" || \
+        uv pip install --system --index-url https://download.pytorch.org/whl/cu121 "torchaudio==2.3.1+cu121" || \
+        uv pip install --system --index-url https://download.pytorch.org/whl/cu118 "torchaudio==2.2.2+cu118" || \
+        echo "Warning: Could not install compatible torchaudio version")
 
 # Install PyTorch - use nightly for RTX 5090 support if requested
 # Only upgrade torch and torchvision, torchaudio is already at compatible version
 RUN if [ "$USE_PYTORCH_NIGHTLY" = "true" ]; then \
         echo "Installing PyTorch nightly for RTX 5090 support..." \
-        && uv pip uninstall --system -y torch torchvision || true \
+        && uv pip uninstall --system torch torchvision || true \
         && uv pip install --system --pre --index-url https://download.pytorch.org/whl/nightly/cu128 torch torchvision; \
     else \
         echo "Upgrading PyTorch to latest stable version..." \
-        && uv pip uninstall --system -y torch torchvision || true \
+        && uv pip uninstall --system torch torchvision || true \
         && uv pip install --system --index-url https://download.pytorch.org/whl/cu128 torch torchvision; \
     fi \
     && python -c "import torch; import torchaudio; print(f'PyTorch: {torch.__version__}, torchaudio: {torchaudio.__version__}')" \
