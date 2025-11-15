@@ -39,24 +39,30 @@ COPY app/gunicorn_logging.conf .
 
 # Install Python dependencies using UV with pyproject.toml
 # UV automatically selects CUDA 12.8 wheels on Linux (compatible with CUDA 13.0 runtime)
-# Use uv pip install to install project and dependencies directly to system Python
-# Note: uv pip install . will install the project with all dependencies from pyproject.toml
+# First install all dependencies, then fix torchaudio compatibility
 RUN uv pip install --system . \
     && uv pip install --system ctranslate2==4.6.0
 
+# Fix torchaudio compatibility with pyannote.audio
+# pyannote.audio requires torchaudio with AudioMetaData (removed in torchaudio 2.4+)
+# Install compatible torchaudio version (2.3.1 has AudioMetaData and works with PyTorch 2.8)
+RUN echo "Fixing torchaudio compatibility..." \
+    && uv pip uninstall --system -y torchaudio || true \
+    && uv pip install --system --index-url https://download.pytorch.org/whl/cu128 "torchaudio==2.3.1"
+
 # Install PyTorch - use nightly for RTX 5090 support if requested
-# Important: Only upgrade torch and torchvision, keep torchaudio version from pyproject.toml
-# to maintain compatibility with pyannote.audio which requires torchaudio.AudioMetaData
+# Only upgrade torch and torchvision, torchaudio is already at compatible version
 RUN if [ "$USE_PYTORCH_NIGHTLY" = "true" ]; then \
         echo "Installing PyTorch nightly for RTX 5090 support..." \
         && uv pip uninstall --system -y torch torchvision || true \
         && uv pip install --system --pre --index-url https://download.pytorch.org/whl/nightly/cu128 torch torchvision; \
     else \
-        echo "Upgrading PyTorch to latest stable version (keeping torchaudio from dependencies)..." \
+        echo "Upgrading PyTorch to latest stable version..." \
         && uv pip uninstall --system -y torch torchvision || true \
         && uv pip install --system --index-url https://download.pytorch.org/whl/cu128 torch torchvision; \
     fi \
     && python -c "import torch; import torchaudio; print(f'PyTorch: {torch.__version__}, torchaudio: {torchaudio.__version__}')" \
+    && python -c "import torchaudio; assert hasattr(torchaudio, 'AudioMetaData'), 'AudioMetaData not found in torchaudio'; print('✓ AudioMetaData available')" \
     && rm -rf /root/.cache /tmp/* /root/.uv /var/cache/* \
     && find /usr/local -type d -name '__pycache__' -exec rm -rf {} + 2>/dev/null || true \
     && find /usr/local -type f -name '*.pyc' -delete \
