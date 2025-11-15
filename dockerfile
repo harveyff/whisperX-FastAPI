@@ -1,4 +1,5 @@
-FROM nvidia/cuda:13.0.1-base-ubuntu22.04
+# Use CUDA runtime image which includes more complete library set including newer NCCL
+FROM nvidia/cuda:13.0.1-runtime-ubuntu22.04
 
 # Build argument to choose PyTorch version (stable or nightly for RTX 5090)
 ARG USE_PYTORCH_NIGHTLY=false
@@ -38,15 +39,29 @@ RUN export DEBIAN_FRONTEND=noninteractive \
 # Install latest NCCL from NVIDIA repository (needed for PyTorch 2.8+)
 # PyTorch 2.8 requires NCCL 2.18+ which includes ncclGroupSimulateEnd symbol
 # Install binutils for symbol checking
-# If repository version is too old, we'll try to install from NVIDIA directly
+# Try to install the latest available version, or download from NVIDIA if needed
 RUN export DEBIAN_FRONTEND=noninteractive \
     && apt-get -y update \
-    && apt-get -y install --no-install-recommends libnccl2 libnccl-dev binutils \
+    && apt-get -y install --no-install-recommends libnccl2 libnccl-dev binutils wget \
     && NCCL_VERSION=$(dpkg -l | grep libnccl2 | awk '{print $3}' | cut -d'+' -f1) \
-    && echo "Installed NCCL version: $NCCL_VERSION" \
+    && echo "Installed NCCL version from repo: $NCCL_VERSION" \
+    && MAJOR_VERSION=$(echo "$NCCL_VERSION" | cut -d'.' -f1) \
+    && MINOR_VERSION=$(echo "$NCCL_VERSION" | cut -d'.' -f2) \
+    && if [ "$MAJOR_VERSION" -lt 2 ] || ([ "$MAJOR_VERSION" -eq 2 ] && [ "$MINOR_VERSION" -lt 18 ]); then \
+        echo "NCCL version too old (< 2.18), attempting to install from NVIDIA..." \
+        && cd /tmp \
+        && wget -q https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/libnccl2_2.19.3-1+cuda12.0_amd64.deb || \
+        wget -q https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/libnccl2_2.18.5-1+cuda12.0_amd64.deb || \
+        echo "Could not download newer NCCL, using repository version" \
+        && if [ -f /tmp/libnccl2_*.deb ]; then \
+            dpkg -i /tmp/libnccl2_*.deb || true \
+            && rm -f /tmp/libnccl2_*.deb; \
+        fi; \
+    fi \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/* \
     && ldconfig \
+    && echo "Final NCCL version:" && dpkg -l | grep libnccl2 || echo "NCCL not found in dpkg" \
     && echo "NCCL library location:" && find /usr -name "libnccl.so*" 2>/dev/null | head -5
 
 # Install UV for package management
@@ -101,6 +116,7 @@ RUN if [ "$USE_PYTORCH_NIGHTLY" = "true" ]; then \
 
 # Create startup script that sets environment variables before starting gunicorn
 # Intelligently handle NCCL library loading to avoid symbol errors
+# Use LD_PRELOAD to force loading correct NCCL library if needed
 RUN cat > /usr/local/bin/start.sh << 'EOF' && chmod +x /usr/local/bin/start.sh
 #!/bin/bash
 # Update library cache
@@ -111,20 +127,33 @@ TORCH_LIB="/usr/local/lib/python3.11/dist-packages/torch/lib"
 SYSTEM_NCCL="/usr/lib/x86_64-linux-gnu/libnccl.so.2"
 
 # Check if system NCCL has the required symbol
+NCCL_LIB=""
 if [ -f "$SYSTEM_NCCL" ]; then
     if nm -D "$SYSTEM_NCCL" 2>/dev/null | grep -q "ncclGroupSimulateEnd"; then
         echo "System NCCL has required symbol, using system NCCL"
+        NCCL_LIB="$SYSTEM_NCCL"
         export LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu:$TORCH_LIB:/usr/local/cuda/lib64:$LD_LIBRARY_PATH
     elif [ -d "$TORCH_LIB" ] && ls "$TORCH_LIB"/libnccl*.so* 1> /dev/null 2>&1; then
         echo "System NCCL missing symbol, trying PyTorch bundled NCCL"
+        NCCL_LIB=$(ls "$TORCH_LIB"/libnccl.so* 2>/dev/null | head -1)
         export LD_LIBRARY_PATH=$TORCH_LIB:/usr/lib/x86_64-linux-gnu:/usr/local/cuda/lib64:$LD_LIBRARY_PATH
     else
         echo "Warning: No suitable NCCL found, using system NCCL anyway"
+        NCCL_LIB="$SYSTEM_NCCL"
         export LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu:$TORCH_LIB:/usr/local/cuda/lib64:$LD_LIBRARY_PATH
     fi
 else
     echo "System NCCL not found, using PyTorch bundled NCCL if available"
+    if [ -d "$TORCH_LIB" ] && ls "$TORCH_LIB"/libnccl*.so* 1> /dev/null 2>&1; then
+        NCCL_LIB=$(ls "$TORCH_LIB"/libnccl*.so* 2>/dev/null | head -1)
+    fi
     export LD_LIBRARY_PATH=$TORCH_LIB:/usr/local/cuda/lib64:$LD_LIBRARY_PATH
+fi
+
+# Use LD_PRELOAD to force loading correct NCCL library before PyTorch loads
+if [ -n "$NCCL_LIB" ] && [ -f "$NCCL_LIB" ]; then
+    export LD_PRELOAD="$NCCL_LIB:$LD_PRELOAD"
+    echo "Using LD_PRELOAD to force NCCL: $NCCL_LIB"
 fi
 
 # Set NCCL environment variables for single GPU inference
