@@ -4,10 +4,11 @@ FROM nvidia/cuda:13.0.1-base-ubuntu22.04
 ARG USE_PYTORCH_NIGHTLY=false
 
 ENV PYTHON_VERSION=3.11
-ENV LD_LIBRARY_PATH=/usr/local/cuda/lib64:/usr/lib/x86_64-linux-gnu:$LD_LIBRARY_PATH
+ENV LD_LIBRARY_PATH=/usr/local/cuda/lib64:/usr/lib/x86_64-linux-gnu:/usr/local/lib:$LD_LIBRARY_PATH
 
 # Install dependencies and clean up in the same layer
 # Fix dpkg configuration issues by running configure first
+# Install NCCL for PyTorch distributed operations
 # hadolint ignore=DL3008
 RUN export DEBIAN_FRONTEND=noninteractive \
     && apt-get -y update \
@@ -19,6 +20,8 @@ RUN export DEBIAN_FRONTEND=noninteractive \
     git \
     ffmpeg \
     libcudnn9-cuda-12 \
+    libnccl2 \
+    libnccl-dev \
     libatomic1 \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/* \
