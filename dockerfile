@@ -191,7 +191,7 @@ RUN if [ "$USE_PYTORCH_NIGHTLY" = "true" ]; then \
         echo "ERROR: PyTorch import failed at build time even with correct NCCL!" \
         && echo "This indicates a deeper compatibility issue." \
         && exit 1; \
-    fi
+    fi \
     && rm -rf /root/.cache /tmp/* /root/.uv /var/cache/* \
     && find /usr/local -type d -name '__pycache__' -exec rm -rf {} + 2>/dev/null || true \
     && find /usr/local -type f -name '*.pyc' -delete \
