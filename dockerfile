@@ -120,15 +120,23 @@ RUN if [ "$USE_PYTORCH_NIGHTLY" = "true" ]; then \
     && python -c "import torchaudio; assert hasattr(torchaudio, 'AudioMetaData'), 'AudioMetaData not found in torchaudio'; print('✓ AudioMetaData available')" \
     && python -c "import torch; import os; torch_lib = os.path.join(os.path.dirname(torch.__file__), 'lib'); print(f'PyTorch lib path: {torch_lib}'); import glob; nccl_libs = glob.glob(os.path.join(torch_lib, '*nccl*')); print(f'NCCL libraries in PyTorch: {nccl_libs}')" \
     && ldconfig \
-    && echo "Final NCCL verification after PyTorch installation..." \
-    && if [ -f "/tmp/nccl_lib_path.txt" ] && [ -s "/tmp/nccl_lib_path.txt" ]; then \
-        NCCL_PATH=$(cat /tmp/nccl_lib_path.txt) \
-        && echo "System NCCL is compatible, will use: $NCCL_PATH" \
-        && echo "export LD_LIBRARY_PATH=$NCCL_PATH:/usr/local/lib/python3.11/dist-packages/torch/lib:/usr/local/cuda/lib64:\$LD_LIBRARY_PATH" > /etc/profile.d/pytorch_nccl.sh; \
+    && echo "Determining correct NCCL library to use..." \
+    && TORCH_LIB="/usr/local/lib/python3.11/dist-packages/torch/lib" \
+    && SYSTEM_NCCL="/usr/lib/x86_64-linux-gnu/libnccl.so.2" \
+    && NCCL_TO_USE="" \
+    && if [ -f "$SYSTEM_NCCL" ] && nm -D "$SYSTEM_NCCL" 2>/dev/null | grep -q "ncclGroupSimulateEnd"; then \
+        echo "✓ Using system NCCL (has required symbol)" \
+        && NCCL_TO_USE="$SYSTEM_NCCL" \
+        && echo "$SYSTEM_NCCL" > /etc/pytorch_nccl_lib.txt; \
+    elif [ -d "$TORCH_LIB" ] && ls "$TORCH_LIB"/libnccl*.so* 1> /dev/null 2>&1; then \
+        NCCL_TO_USE=$(ls "$TORCH_LIB"/libnccl*.so* 2>/dev/null | head -1) \
+        && echo "✓ Using PyTorch bundled NCCL: $NCCL_TO_USE" \
+        && echo "$NCCL_TO_USE" > /etc/pytorch_nccl_lib.txt; \
     else \
-        echo "System NCCL not compatible, will try PyTorch bundled NCCL" \
-        && echo "export LD_LIBRARY_PATH=/usr/local/lib/python3.11/dist-packages/torch/lib:/usr/lib/x86_64-linux-gnu:/usr/local/cuda/lib64:\$LD_LIBRARY_PATH" > /etc/profile.d/pytorch_nccl.sh; \
+        echo "ERROR: No compatible NCCL found!" \
+        && exit 1; \
     fi \
+    && echo "NCCL library to use: $(cat /etc/pytorch_nccl_lib.txt)" \
     && rm -rf /root/.cache /tmp/* /root/.uv /var/cache/* \
     && find /usr/local -type d -name '__pycache__' -exec rm -rf {} + 2>/dev/null || true \
     && find /usr/local -type f -name '*.pyc' -delete \
@@ -139,9 +147,33 @@ RUN if [ "$USE_PYTORCH_NIGHTLY" = "true" ]; then \
 # Use LD_PRELOAD to force loading correct NCCL library if needed
 RUN cat > /usr/local/bin/start.sh << 'EOF' && chmod +x /usr/local/bin/start.sh
 #!/bin/bash
+set -e
+
 # Update library cache
 ldconfig
 
+# Try to use NCCL library determined at build time (preferred method)
+if [ -f /etc/pytorch_nccl_lib.txt ]; then
+    NCCL_LIB=$(cat /etc/pytorch_nccl_lib.txt)
+    if [ -f "$NCCL_LIB" ]; then
+        echo "Using build-time determined NCCL library: $NCCL_LIB"
+        export LD_PRELOAD="$NCCL_LIB"
+        NCCL_DIR=$(dirname "$NCCL_LIB")
+        TORCH_LIB="/usr/local/lib/python3.11/dist-packages/torch/lib"
+        export LD_LIBRARY_PATH="$NCCL_DIR:$TORCH_LIB:/usr/local/cuda/lib64:$LD_LIBRARY_PATH"
+        # Skip runtime detection and go directly to testing
+        echo "Testing PyTorch import with build-time NCCL..."
+        python -c "import torch; print(f'✓ PyTorch {torch.__version__} imported successfully')" || {
+            echo "ERROR: PyTorch import failed with build-time NCCL"
+            exit 1
+        }
+        export NCCL_P2P_DISABLE=1
+        export NCCL_SHM_DISABLE=1
+        exec python -m gunicorn --bind 0.0.0.0:8000 --workers 1 --timeout 0 --log-config gunicorn_logging.conf app.main:app -k uvicorn.workers.UvicornWorker "$@"
+    fi
+fi
+
+# Fallback to runtime detection if build-time file not found
 # Find NCCL libraries
 TORCH_LIB="/usr/local/lib/python3.11/dist-packages/torch/lib"
 SYSTEM_NCCL="/usr/lib/x86_64-linux-gnu/libnccl.so.2"
