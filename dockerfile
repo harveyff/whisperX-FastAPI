@@ -101,7 +101,7 @@ RUN if [ "$USE_PYTORCH_NIGHTLY" = "true" ]; then \
 
 # Create startup script that sets environment variables before starting gunicorn
 # Intelligently handle NCCL library loading to avoid symbol errors
-RUN cat > /usr/local/bin/start.sh << 'EOF'
+RUN cat > /usr/local/bin/start.sh << 'EOF' && chmod +x /usr/local/bin/start.sh
 #!/bin/bash
 # Update library cache
 ldconfig
@@ -133,7 +133,6 @@ export NCCL_SHM_DISABLE=1
 
 exec python -m gunicorn --bind 0.0.0.0:8000 --workers 1 --timeout 0 --log-config gunicorn_logging.conf app.main:app -k uvicorn.workers.UvicornWorker "$@"
 EOF
-chmod +x /usr/local/bin/start.sh
 
 EXPOSE 8000
 
