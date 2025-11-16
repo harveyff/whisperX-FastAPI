@@ -206,11 +206,19 @@ RUN cat > /usr/local/bin/start.sh << 'EOF' && chmod +x /usr/local/bin/start.sh
 #!/bin/bash
 set -e
 
-# Redirect all output to stderr so it appears in gunicorn logs
+# Force output to stderr and stdout to ensure visibility
+# Write to both stderr and a log file for debugging
 exec 1>&2
 
+# Also write to a log file for debugging
+LOG_FILE="/tmp/startup.log"
+exec 3>> "$LOG_FILE"
+
+# Force output to ensure script is executing
 echo "=== WhisperX Service Startup Script ===" >&2
 echo "Starting at $(date)" >&2
+echo "Script PID: $$" >&2
+echo "Current user: $(whoami)" >&2
 
 # Update library cache
 ldconfig
@@ -224,6 +232,7 @@ SYSTEM_NCCL="/usr/lib/${ARCH}-linux-gnu/libnccl.so.2"
 echo "Architecture: $ARCH" >&2
 echo "System NCCL path: $SYSTEM_NCCL" >&2
 echo "PyTorch lib path: $TORCH_LIB" >&2
+echo "Checking for build-time NCCL file: /etc/pytorch_nccl_lib.txt" >&2
 
 # Try to use NCCL library determined at build time (preferred method)
 if [ -f /etc/pytorch_nccl_lib.txt ]; then
@@ -368,4 +377,5 @@ EOF
 EXPOSE 8000
 
 # Use startup script to ensure PyTorch's NCCL libraries are prioritized
-ENTRYPOINT ["/usr/local/bin/start.sh"]
+# Use shell form to ensure environment variables are properly set
+ENTRYPOINT ["/bin/bash", "/usr/local/bin/start.sh"]
