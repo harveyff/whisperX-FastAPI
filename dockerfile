@@ -236,15 +236,17 @@ if [ -f /etc/pytorch_nccl_lib.txt ]; then
         
         # Test PyTorch import with LD_PRELOAD set before starting gunicorn
         echo "Testing PyTorch import with build-time NCCL..."
+        echo "LD_PRELOAD: $LD_PRELOAD"
+        echo "LD_LIBRARY_PATH: $LD_LIBRARY_PATH"
         if ! python -c "import torch; print(f'✓ PyTorch {torch.__version__} imported successfully')" 2>&1; then
             echo "ERROR: PyTorch import failed with build-time NCCL!"
-            echo "LD_PRELOAD: $LD_PRELOAD"
-            echo "LD_LIBRARY_PATH: $LD_LIBRARY_PATH"
             exit 1
         fi
         
-        # Start gunicorn with LD_PRELOAD set
-        exec python -m gunicorn --bind 0.0.0.0:8000 --workers 1 --timeout 0 --log-config gunicorn_logging.conf app.main:app -k uvicorn.workers.UvicornWorker "$@"
+        # Start gunicorn with LD_PRELOAD explicitly set in environment
+        # Use env to ensure LD_PRELOAD is passed to all child processes
+        echo "Starting gunicorn with LD_PRELOAD=$LD_PRELOAD"
+        exec env LD_PRELOAD="$LD_PRELOAD" LD_LIBRARY_PATH="$LD_LIBRARY_PATH" python -m gunicorn --bind 0.0.0.0:8000 --workers 1 --timeout 0 --log-config gunicorn_logging.conf app.main:app -k uvicorn.workers.UvicornWorker "$@"
     fi
 fi
 
@@ -294,14 +296,22 @@ export NCCL_IB_DISABLE=1
 
 # Test PyTorch import before starting gunicorn
 echo "Testing PyTorch import..."
+echo "LD_PRELOAD: ${LD_PRELOAD:-not set}"
+echo "LD_LIBRARY_PATH: $LD_LIBRARY_PATH"
 if ! python -c "import torch; print(f'✓ PyTorch {torch.__version__} imported successfully')" 2>&1; then
     echo "ERROR: PyTorch import failed!"
-    echo "LD_PRELOAD: ${LD_PRELOAD:-not set}"
-    echo "LD_LIBRARY_PATH: $LD_LIBRARY_PATH"
     exit 1
 fi
 
-exec python -m gunicorn --bind 0.0.0.0:8000 --workers 1 --timeout 0 --log-config gunicorn_logging.conf app.main:app -k uvicorn.workers.UvicornWorker "$@"
+# Start gunicorn with environment variables explicitly set
+# Use env to ensure LD_PRELOAD is passed to all child processes
+if [ -n "$LD_PRELOAD" ]; then
+    echo "Starting gunicorn with LD_PRELOAD=$LD_PRELOAD"
+    exec env LD_PRELOAD="$LD_PRELOAD" LD_LIBRARY_PATH="$LD_LIBRARY_PATH" python -m gunicorn --bind 0.0.0.0:8000 --workers 1 --timeout 0 --log-config gunicorn_logging.conf app.main:app -k uvicorn.workers.UvicornWorker "$@"
+else
+    echo "Starting gunicorn without LD_PRELOAD"
+    exec env LD_LIBRARY_PATH="$LD_LIBRARY_PATH" python -m gunicorn --bind 0.0.0.0:8000 --workers 1 --timeout 0 --log-config gunicorn_logging.conf app.main:app -k uvicorn.workers.UvicornWorker "$@"
+fi
 EOF
 
 EXPOSE 8000
