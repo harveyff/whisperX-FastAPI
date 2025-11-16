@@ -137,7 +137,7 @@ RUN echo "Fixing torchaudio compatibility for pyannote.audio..." \
             uv pip install --system --index-url https://download.pytorch.org/whl/cu118 "torchaudio==2.3.1+cu118" || \
             echo "ERROR: Could not install torchaudio" && exit 1)) \
     && python -c "import torch; import torchaudio; print(f'PyTorch: {torch.__version__}, torchaudio: {torchaudio.__version__}')" \
-    && (python -c "import torchaudio; assert hasattr(torchaudio, 'AudioMetaData'), 'AudioMetaData not found in torchaudio'; print('✓ AudioMetaData available')" || echo "WARNING: AudioMetaData not found - this may cause pyannote.audio to fail. Consider using PyTorch 2.7 or updating pyannote.audio.")
+    && (python -c "import torchaudio; assert hasattr(torchaudio, 'AudioMetaData'), 'AudioMetaData not found in torchaudio'; print('✓ AudioMetaData available')" || echo "WARNING: AudioMetaData not found - this may cause pyannote.audio to fail. Consider using PyTorch 2.7 or updating pyannote.audio.") \
     && echo "Determining correct NCCL library to use..." \
     && TORCH_LIB="/usr/local/lib/python3.11/dist-packages/torch/lib" \
     && ARCH=$(uname -m) \
