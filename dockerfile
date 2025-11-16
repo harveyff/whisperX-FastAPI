@@ -7,7 +7,8 @@ ARG USE_PYTORCH_NIGHTLY=false
 ENV PYTHON_VERSION=3.11
 # LD_LIBRARY_PATH will be set after NCCL installation to ensure correct library is found
 # System NCCL (if version 2.18+) takes priority, then PyTorch bundled libraries
-ENV LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu:/usr/local/cuda/lib64:/usr/local/lib
+# Include CUDA library paths for torchaudio compatibility
+ENV LD_LIBRARY_PATH=/usr/local/cuda/lib64:/usr/local/cuda/compat:/usr/lib/x86_64-linux-gnu:/usr/local/lib
 # LD_PRELOAD will be set by startup script based on build-time detection
 
 # Install dependencies and clean up in the same layer
@@ -98,11 +99,13 @@ RUN uv pip install --system . \
 
 # Fix torchaudio compatibility with pyannote.audio
 # pyannote.audio requires torchaudio with AudioMetaData (available in torchaudio < 2.4)
-# Try installing compatible version from CUDA 11.8 or 12.1 index (compatible with CUDA 12.8 runtime)
+# Try installing compatible version from CUDA 12.1 index first (compatible with CUDA 13.0 runtime)
+# CUDA 12.1 wheels are more compatible with CUDA 13.0 runtime than CUDA 11.8 wheels
 RUN echo "Fixing torchaudio compatibility for pyannote.audio..." \
     && uv pip uninstall --system torchaudio || true \
-    && (uv pip install --system --index-url https://download.pytorch.org/whl/cu118 "torchaudio==2.3.1+cu118" || \
-        uv pip install --system --index-url https://download.pytorch.org/whl/cu121 "torchaudio==2.3.1+cu121" || \
+    && (uv pip install --system --index-url https://download.pytorch.org/whl/cu121 "torchaudio==2.3.1+cu121" || \
+        uv pip install --system --index-url https://download.pytorch.org/whl/cu118 "torchaudio==2.3.1+cu118" || \
+        uv pip install --system --index-url https://download.pytorch.org/whl/cu121 "torchaudio==2.2.2+cu121" || \
         uv pip install --system --index-url https://download.pytorch.org/whl/cu118 "torchaudio==2.2.2+cu118" || \
         echo "Warning: Could not install compatible torchaudio version")
 
@@ -246,7 +249,7 @@ if [ -f /etc/pytorch_nccl_lib.txt ]; then
         export LD_PRELOAD="$NCCL_LIB"
         NCCL_DIR=$(dirname "$NCCL_LIB")
         TORCH_LIB="/usr/local/lib/python3.11/dist-packages/torch/lib"
-        export LD_LIBRARY_PATH="$NCCL_DIR:$TORCH_LIB:/usr/local/cuda/lib64:$LD_LIBRARY_PATH"
+        export LD_LIBRARY_PATH="$NCCL_DIR:$TORCH_LIB:/usr/local/cuda/lib64:/usr/local/cuda/compat:$LD_LIBRARY_PATH"
         
         # Verify the symbol is present
         echo "Verifying NCCL symbol..." >&2
@@ -317,7 +320,7 @@ fi
 if [ -n "$NCCL_LIB" ] && [ -f "$NCCL_LIB" ]; then
     export LD_PRELOAD="$NCCL_LIB"
     NCCL_DIR=$(dirname "$NCCL_LIB")
-    export LD_LIBRARY_PATH="$NCCL_DIR:$TORCH_LIB:/usr/local/cuda/lib64:$LD_LIBRARY_PATH"
+    export LD_LIBRARY_PATH="$NCCL_DIR:$TORCH_LIB:/usr/local/cuda/lib64:/usr/local/cuda/compat:$LD_LIBRARY_PATH"
     echo "Using LD_PRELOAD to force NCCL: $NCCL_LIB" >&2
     
     # Verify symbol
@@ -348,7 +351,7 @@ if [ -z "$NCCL_LIB" ] && [ -f "$SYSTEM_NCCL" ]; then
     NCCL_LIB="$SYSTEM_NCCL"
     export LD_PRELOAD="$NCCL_LIB"
     NCCL_DIR=$(dirname "$NCCL_LIB")
-    export LD_LIBRARY_PATH="$NCCL_DIR:$TORCH_LIB:/usr/local/cuda/lib64:$LD_LIBRARY_PATH"
+    export LD_LIBRARY_PATH="$NCCL_DIR:$TORCH_LIB:/usr/local/cuda/lib64:/usr/local/cuda/compat:$LD_LIBRARY_PATH"
 fi
 
 # Set NCCL environment variables for single GPU inference
@@ -386,7 +389,15 @@ echo "✓ PyTorch import test passed" >&2
 # CRITICAL: Use env to ensure LD_PRELOAD is passed to all child processes including workers
 if [ -n "$LD_PRELOAD" ]; then
     echo "Starting gunicorn with LD_PRELOAD=$LD_PRELOAD" >&2
-    exec env LD_PRELOAD="$LD_PRELOAD" LD_LIBRARY_PATH="$LD_LIBRARY_PATH" NCCL_P2P_DISABLE="$NCCL_P2P_DISABLE" NCCL_SHM_DISABLE="$NCCL_SHM_DISABLE" NCCL_IB_DISABLE="$NCCL_IB_DISABLE" python -m gunicorn --bind 0.0.0.0:8000 --workers 1 --timeout 0 --log-config gunicorn_logging.conf app.main:app -k uvicorn.workers.UvicornWorker "$@"
+    # If arguments are provided, use them; otherwise use default gunicorn command
+    if [ $# -gt 0 ]; then
+        # User provided custom command, execute it with environment variables
+        echo "Executing custom command: $@" >&2
+        exec env LD_PRELOAD="$LD_PRELOAD" LD_LIBRARY_PATH="$LD_LIBRARY_PATH" NCCL_P2P_DISABLE="$NCCL_P2P_DISABLE" NCCL_SHM_DISABLE="$NCCL_SHM_DISABLE" NCCL_IB_DISABLE="$NCCL_IB_DISABLE" "$@"
+    else
+        # No arguments, use default gunicorn command
+        exec env LD_PRELOAD="$LD_PRELOAD" LD_LIBRARY_PATH="$LD_LIBRARY_PATH" NCCL_P2P_DISABLE="$NCCL_P2P_DISABLE" NCCL_SHM_DISABLE="$NCCL_SHM_DISABLE" NCCL_IB_DISABLE="$NCCL_IB_DISABLE" python -m gunicorn --bind 0.0.0.0:8000 --workers 1 --timeout 0 --log-config gunicorn_logging.conf app.main:app -k uvicorn.workers.UvicornWorker
+    fi
 else
     echo "ERROR: LD_PRELOAD is not set! Cannot start gunicorn safely." >&2
     echo "Please check NCCL installation and ensure a compatible library is available." >&2
@@ -398,4 +409,6 @@ EXPOSE 8000
 
 # Use startup script to ensure PyTorch's NCCL libraries are prioritized
 # Use shell form to ensure environment variables are properly set
+# Also set as CMD as fallback in case ENTRYPOINT is overridden
 ENTRYPOINT ["/bin/bash", "/usr/local/bin/start.sh"]
+CMD []

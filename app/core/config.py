@@ -1,8 +1,38 @@
 """Configuration module for the WhisperX FastAPI application."""
 
 import os
+import sys
 from functools import lru_cache
 from typing import Optional
+
+# CRITICAL: Try to set LD_PRELOAD before importing torch
+# This is a fallback in case the startup script didn't execute
+# Note: This usually won't work because LD_PRELOAD must be set before process starts,
+# but we try anyway as a last resort
+if "LD_PRELOAD" not in os.environ or not os.environ.get("LD_PRELOAD"):
+    # Try to find NCCL library at runtime
+    import glob
+    
+    # Check common NCCL locations
+    torch_lib = "/usr/local/lib/python3.11/dist-packages/torch/lib"
+    system_nccl = f"/usr/lib/{os.uname().machine}-linux-gnu/libnccl.so.2"
+    
+    nccl_lib = None
+    # Try system NCCL first
+    if os.path.exists(system_nccl):
+        nccl_lib = system_nccl
+    # Try PyTorch bundled NCCL
+    elif os.path.exists(torch_lib):
+        nccl_files = glob.glob(os.path.join(torch_lib, "libnccl*.so*"))
+        if nccl_files:
+            nccl_lib = nccl_files[0]
+    
+    if nccl_lib and os.path.exists(nccl_lib):
+        # Try to set LD_PRELOAD (may not work, but worth trying)
+        os.environ["LD_PRELOAD"] = nccl_lib
+        nccl_dir = os.path.dirname(nccl_lib)
+        current_ld_path = os.environ.get("LD_LIBRARY_PATH", "")
+        os.environ["LD_LIBRARY_PATH"] = f"{nccl_dir}:{torch_lib}:/usr/local/cuda/lib64:{current_ld_path}"
 
 try:
     import torch
@@ -19,6 +49,7 @@ except (ImportError, OSError, RuntimeError) as e:
             f"Diagnostic information:\n"
             f"  LD_PRELOAD: {ld_preload}\n"
             f"  LD_LIBRARY_PATH: {ld_library_path}\n"
+            f"  Python attempted to set LD_PRELOAD but it may be too late.\n"
             f"Please ensure the startup script correctly sets LD_PRELOAD to a compatible NCCL library."
         ) from e
     raise
