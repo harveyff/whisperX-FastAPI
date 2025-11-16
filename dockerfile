@@ -215,6 +215,16 @@ echo "Starting at $(date)" >&2
 # Update library cache
 ldconfig
 
+# Initialize variables
+NCCL_LIB=""
+TORCH_LIB="/usr/local/lib/python3.11/dist-packages/torch/lib"
+ARCH=$(uname -m)
+SYSTEM_NCCL="/usr/lib/${ARCH}-linux-gnu/libnccl.so.2"
+
+echo "Architecture: $ARCH" >&2
+echo "System NCCL path: $SYSTEM_NCCL" >&2
+echo "PyTorch lib path: $TORCH_LIB" >&2
+
 # Try to use NCCL library determined at build time (preferred method)
 if [ -f /etc/pytorch_nccl_lib.txt ]; then
     NCCL_LIB=$(cat /etc/pytorch_nccl_lib.txt)
@@ -265,13 +275,9 @@ if [ -f /etc/pytorch_nccl_lib.txt ]; then
 fi
 
 # Fallback to runtime detection if build-time file not found
-# Find NCCL libraries
-ARCH=$(uname -m)
-TORCH_LIB="/usr/local/lib/python3.11/dist-packages/torch/lib"
-SYSTEM_NCCL="/usr/lib/${ARCH}-linux-gnu/libnccl.so.2"
+echo "Build-time NCCL file not found, performing runtime detection..." >&2
 
 # Check if system NCCL has the required symbol
-NCCL_LIB=""
 if [ -f "$SYSTEM_NCCL" ]; then
     if nm -D "$SYSTEM_NCCL" 2>/dev/null | grep -q "ncclGroupSimulateEnd"; then
         echo "System NCCL has required symbol, using system NCCL" >&2
@@ -305,6 +311,27 @@ if [ -n "$NCCL_LIB" ] && [ -f "$NCCL_LIB" ]; then
     fi
 else
     echo "WARNING: No NCCL library found for LD_PRELOAD!" >&2
+    echo "Attempting to find any NCCL library in PyTorch..." >&2
+    if [ -d "$TORCH_LIB" ]; then
+        # Try to find any NCCL library, even if symbol check fails
+        FOUND_NCCL=$(find "$TORCH_LIB" -name "libnccl*.so*" -type f 2>/dev/null | head -1)
+        if [ -n "$FOUND_NCCL" ] && [ -f "$FOUND_NCCL" ]; then
+            echo "Found PyTorch NCCL library (unverified): $FOUND_NCCL" >&2
+            NCCL_LIB="$FOUND_NCCL"
+            export LD_PRELOAD="$NCCL_LIB"
+            NCCL_DIR=$(dirname "$NCCL_LIB")
+            export LD_LIBRARY_PATH="$NCCL_DIR:$TORCH_LIB:/usr/local/cuda/lib64:$LD_LIBRARY_PATH"
+        fi
+    fi
+fi
+
+# Final check: if still no NCCL_LIB, try system NCCL as last resort
+if [ -z "$NCCL_LIB" ] && [ -f "$SYSTEM_NCCL" ]; then
+    echo "Using system NCCL as last resort: $SYSTEM_NCCL" >&2
+    NCCL_LIB="$SYSTEM_NCCL"
+    export LD_PRELOAD="$NCCL_LIB"
+    NCCL_DIR=$(dirname "$NCCL_LIB")
+    export LD_LIBRARY_PATH="$NCCL_DIR:$TORCH_LIB:/usr/local/cuda/lib64:$LD_LIBRARY_PATH"
 fi
 
 # Set NCCL environment variables for single GPU inference
@@ -313,25 +340,28 @@ export NCCL_SHM_DISABLE=1
 export NCCL_IB_DISABLE=1
 
 # Test PyTorch import before starting gunicorn
-echo "Testing PyTorch import..." >&2
+echo "=== Final Configuration ===" >&2
 echo "LD_PRELOAD: ${LD_PRELOAD:-not set}" >&2
 echo "LD_LIBRARY_PATH: $LD_LIBRARY_PATH" >&2
+echo "NCCL_P2P_DISABLE: $NCCL_P2P_DISABLE" >&2
+echo "NCCL_SHM_DISABLE: $NCCL_SHM_DISABLE" >&2
+
+echo "Testing PyTorch import..." >&2
 if ! python -c "import torch; print(f'✓ PyTorch {torch.__version__} imported successfully')" 2>&1; then
     echo "ERROR: PyTorch import failed!" >&2
+    echo "This usually means LD_PRELOAD is not set correctly or NCCL library is incompatible." >&2
     exit 1
 fi
 
 # Start gunicorn with environment variables explicitly set
-# Use env to ensure LD_PRELOAD is passed to all child processes
+# CRITICAL: Use env to ensure LD_PRELOAD is passed to all child processes including workers
 if [ -n "$LD_PRELOAD" ]; then
     echo "Starting gunicorn with LD_PRELOAD=$LD_PRELOAD" >&2
-    echo "Environment variables:" >&2
-    echo "  LD_PRELOAD=$LD_PRELOAD" >&2
-    echo "  LD_LIBRARY_PATH=$LD_LIBRARY_PATH" >&2
     exec env LD_PRELOAD="$LD_PRELOAD" LD_LIBRARY_PATH="$LD_LIBRARY_PATH" NCCL_P2P_DISABLE="$NCCL_P2P_DISABLE" NCCL_SHM_DISABLE="$NCCL_SHM_DISABLE" NCCL_IB_DISABLE="$NCCL_IB_DISABLE" python -m gunicorn --bind 0.0.0.0:8000 --workers 1 --timeout 0 --log-config gunicorn_logging.conf app.main:app -k uvicorn.workers.UvicornWorker "$@"
 else
-    echo "Starting gunicorn without LD_PRELOAD" >&2
-    exec env LD_LIBRARY_PATH="$LD_LIBRARY_PATH" NCCL_P2P_DISABLE="$NCCL_P2P_DISABLE" NCCL_SHM_DISABLE="$NCCL_SHM_DISABLE" NCCL_IB_DISABLE="$NCCL_IB_DISABLE" python -m gunicorn --bind 0.0.0.0:8000 --workers 1 --timeout 0 --log-config gunicorn_logging.conf app.main:app -k uvicorn.workers.UvicornWorker "$@"
+    echo "ERROR: LD_PRELOAD is not set! Cannot start gunicorn safely." >&2
+    echo "Please check NCCL installation and ensure a compatible library is available." >&2
+    exit 1
 fi
 EOF
 
