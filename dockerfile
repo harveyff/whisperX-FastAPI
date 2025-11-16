@@ -120,19 +120,37 @@ RUN if [ "$USE_PYTORCH_NIGHTLY" = "true" ]; then \
                 && (uv pip install --system --index-url https://download.pytorch.org/whl/cu128 "torch==2.5.0" "torchvision==0.20.0" || \
                     echo "PyTorch 2.5.0 not available, trying 2.6.0..." \
                     && (uv pip install --system --index-url https://download.pytorch.org/whl/cu128 "torch==2.6.0" "torchvision==0.21.0" || \
-                        echo "Specific versions not available, installing latest stable together..." \
-                        && uv pip install --system --index-url https://download.pytorch.org/whl/cu128 torch torchvision)))) \
+                        echo "Specific versions not available, installing torch first, then matching torchvision..." \
+                        && uv pip install --system --index-url https://download.pytorch.org/whl/cu128 torch \
+                        && TORCH_VER=$(python -c "import torch; print(torch.__version__)" 2>/dev/null || echo "") \
+                        && echo "Installed torch version: $TORCH_VER" \
+                        && if [ -n "$TORCH_VER" ]; then \
+                            TORCH_MAJOR=$(echo "$TORCH_VER" | cut -d. -f1) \
+                            && TORCH_MINOR=$(echo "$TORCH_VER" | cut -d. -f2) \
+                            && TORCHVISION_VER="0.$((TORCH_MINOR + 15)).0" \
+                            && echo "Installing matching torchvision version: $TORCHVISION_VER for torch $TORCH_MAJOR.$TORCH_MINOR" \
+                            && (uv pip install --system --index-url https://download.pytorch.org/whl/cu128 "torchvision==$TORCHVISION_VER" || \
+                                echo "torchvision $TORCHVISION_VER not available, trying alternative versions..." \
+                                && (uv pip install --system --index-url https://download.pytorch.org/whl/cu128 "torchvision==0.$((TORCH_MINOR + 14)).0" || \
+                                    uv pip install --system --index-url https://download.pytorch.org/whl/cu128 "torchvision==0.$((TORCH_MINOR + 16)).0" || \
+                                    echo "WARNING: Could not install matching torchvision version, installing latest..." \
+                                    && uv pip install --system --index-url https://download.pytorch.org/whl/cu128 torchvision)); \
+                        else \
+                            echo "ERROR: Could not determine torch version" \
+                            && uv pip install --system --index-url https://download.pytorch.org/whl/cu128 torchvision; \
+                        fi)))) \
         && echo "Verifying torch and torchvision compatibility..." \
         && python -c "import torch; import torchvision; print(f'PyTorch: {torch.__version__}, torchvision: {torchvision.__version__}'); print('Testing torchvision import...'); from torchvision import transforms; print('✓ torch and torchvision are compatible')" || \
             (echo "ERROR: torch and torchvision are not compatible. Attempting to fix..." \
             && TORCH_VER=$(python -c "import torch; print(torch.__version__)" 2>/dev/null || echo "") \
             && echo "Detected torch version: $TORCH_VER" \
             && if [ -n "$TORCH_VER" ]; then \
-                echo "Trying to install matching torchvision versions..." \
-                && (uv pip install --system --index-url https://download.pytorch.org/whl/cu128 --force-reinstall --no-deps "torchvision==0.18.0" || \
-                    uv pip install --system --index-url https://download.pytorch.org/whl/cu128 --force-reinstall --no-deps "torchvision==0.19.0" || \
-                    uv pip install --system --index-url https://download.pytorch.org/whl/cu128 --force-reinstall --no-deps "torchvision==0.20.0" || \
-                    uv pip install --system --index-url https://download.pytorch.org/whl/cu128 --force-reinstall --no-deps "torchvision==0.21.0" || \
+                TORCH_MAJOR=$(echo "$TORCH_VER" | cut -d. -f1) \
+                && TORCH_MINOR=$(echo "$TORCH_VER" | cut -d. -f2) \
+                && echo "Installing matching torchvision for torch $TORCH_MAJOR.$TORCH_MINOR..." \
+                && (uv pip install --system --index-url https://download.pytorch.org/whl/cu128 --force-reinstall --no-deps "torchvision==0.$((TORCH_MINOR + 15)).0" || \
+                    uv pip install --system --index-url https://download.pytorch.org/whl/cu128 --force-reinstall --no-deps "torchvision==0.$((TORCH_MINOR + 14)).0" || \
+                    uv pip install --system --index-url https://download.pytorch.org/whl/cu128 --force-reinstall --no-deps "torchvision==0.$((TORCH_MINOR + 16)).0" || \
                     echo "WARNING: Could not install matching torchvision version"); \
             fi \
             && echo "Re-verifying compatibility..." \
