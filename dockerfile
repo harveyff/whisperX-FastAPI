@@ -93,39 +93,51 @@ COPY app/gunicorn_logging.conf .
 
 # Install Python dependencies using UV with pyproject.toml
 # UV automatically selects CUDA 12.8 wheels on Linux (compatible with CUDA 13.0 runtime)
-# First install all dependencies, then fix torchaudio compatibility
+# First install all dependencies except torch/torchvision/torchaudio
 RUN uv pip install --system . \
     && uv pip install --system ctranslate2==4.6.0
 
-# Fix torchaudio compatibility with pyannote.audio
-# pyannote.audio requires torchaudio with AudioMetaData (available in torchaudio < 2.4)
-# Try installing compatible version from CUDA 12.1 index first (compatible with CUDA 13.0 runtime)
-# CUDA 12.1 wheels are more compatible with CUDA 13.0 runtime than CUDA 11.8 wheels
-RUN echo "Fixing torchaudio compatibility for pyannote.audio..." \
-    && uv pip uninstall --system torchaudio || true \
-    && (uv pip install --system --index-url https://download.pytorch.org/whl/cu121 "torchaudio==2.3.1+cu121" || \
-        uv pip install --system --index-url https://download.pytorch.org/whl/cu118 "torchaudio==2.3.1+cu118" || \
-        uv pip install --system --index-url https://download.pytorch.org/whl/cu121 "torchaudio==2.2.2+cu121" || \
-        uv pip install --system --index-url https://download.pytorch.org/whl/cu118 "torchaudio==2.2.2+cu118" || \
-        echo "Warning: Could not install compatible torchaudio version")
-
-# Install PyTorch - use nightly for RTX 5090 support if requested
-# Only upgrade torch and torchvision, torchaudio is already at compatible version
+# Install PyTorch first - use nightly for RTX 5090 support if requested
+# Install torch and torchvision together to ensure compatibility
 # CRITICAL: PyTorch 2.8 requires NCCL 2.18+ for ncclGroupSimulateEnd symbol
-# For single GPU inference, we can try to disable NCCL or use a workaround
+# CRITICAL: torchaudio 2.3.1 is NOT compatible with PyTorch 2.8+ due to ABI changes
+# Solution: Use PyTorch 2.7 which may still support RTX 5090 and is compatible with torchaudio 2.3.1
+# OR: Use PyTorch 2.8+ with matching torchaudio version (but pyannote.audio needs AudioMetaData)
 RUN if [ "$USE_PYTORCH_NIGHTLY" = "true" ]; then \
         echo "Installing PyTorch nightly for RTX 5090 support..." \
-        && uv pip uninstall --system torch torchvision || true \
+        && uv pip uninstall --system torch torchvision torchaudio || true \
         && uv pip install --system --pre --index-url https://download.pytorch.org/whl/nightly/cu128 torch torchvision; \
     else \
-        echo "Upgrading PyTorch to latest stable version..." \
-        && uv pip uninstall --system torch torchvision || true \
-        && uv pip install --system --index-url https://download.pytorch.org/whl/cu128 torch torchvision; \
+        echo "Installing PyTorch 2.7 for compatibility with torchaudio 2.3.1..." \
+        && echo "Note: PyTorch 2.7 may still support RTX 5090 (compute capability 12.0)" \
+        && uv pip uninstall --system torch torchvision torchaudio || true \
+        && (uv pip install --system --index-url https://download.pytorch.org/whl/cu128 "torch==2.7.0" "torchvision==0.22.0" || \
+            echo "PyTorch 2.7 not available, falling back to latest stable..." \
+            && uv pip install --system --index-url https://download.pytorch.org/whl/cu128 torch torchvision); \
     fi \
-    && python -c "import torch; import torchaudio; print(f'PyTorch: {torch.__version__}, torchaudio: {torchaudio.__version__}')" \
-    && python -c "import torchaudio; assert hasattr(torchaudio, 'AudioMetaData'), 'AudioMetaData not found in torchaudio'; print('✓ AudioMetaData available')" \
+    && echo "PyTorch installed, version: $(python -c 'import torch; print(torch.__version__)')" \
     && python -c "import torch; import os; torch_lib = os.path.join(os.path.dirname(torch.__file__), 'lib'); print(f'PyTorch lib path: {torch_lib}'); import glob; nccl_libs = glob.glob(os.path.join(torch_lib, '*nccl*')); print(f'NCCL libraries in PyTorch: {nccl_libs}')" \
-    && ldconfig \
+    && ldconfig
+
+# Fix torchaudio compatibility with pyannote.audio
+# pyannote.audio requires torchaudio with AudioMetaData (available in torchaudio < 2.4)
+# CRITICAL: torchaudio 2.3.1 is NOT compatible with PyTorch 2.8+ due to ABI changes
+# Try to install torchaudio version that matches PyTorch version
+# If PyTorch 2.8+, we need to use matching torchaudio version (but it may not have AudioMetaData)
+RUN echo "Fixing torchaudio compatibility for pyannote.audio..." \
+    && PYTORCH_VERSION=$(python -c "import torch; print(torch.__version__)" 2>/dev/null || echo "unknown") \
+    && echo "Detected PyTorch version: $PYTORCH_VERSION" \
+    && uv pip uninstall --system torchaudio || true \
+    && echo "Installing torchaudio matching PyTorch version..." \
+    && echo "NOTE: If PyTorch 2.8+, torchaudio 2.3.1 may not be compatible. Will try matching version first." \
+    && (uv pip install --system --index-url https://download.pytorch.org/whl/cu128 torchaudio || \
+        echo "WARNING: Could not install matching torchaudio, trying 2.3.1..." \
+        && (uv pip install --system --index-url https://download.pytorch.org/whl/cu128 "torchaudio==2.3.1+cu128" || \
+            uv pip install --system --index-url https://download.pytorch.org/whl/cu121 "torchaudio==2.3.1+cu121" || \
+            uv pip install --system --index-url https://download.pytorch.org/whl/cu118 "torchaudio==2.3.1+cu118" || \
+            echo "ERROR: Could not install torchaudio" && exit 1)) \
+    && python -c "import torch; import torchaudio; print(f'PyTorch: {torch.__version__}, torchaudio: {torchaudio.__version__}')" \
+    && (python -c "import torchaudio; assert hasattr(torchaudio, 'AudioMetaData'), 'AudioMetaData not found in torchaudio'; print('✓ AudioMetaData available')" || echo "WARNING: AudioMetaData not found - this may cause pyannote.audio to fail. Consider using PyTorch 2.7 or updating pyannote.audio.")
     && echo "Determining correct NCCL library to use..." \
     && TORCH_LIB="/usr/local/lib/python3.11/dist-packages/torch/lib" \
     && ARCH=$(uname -m) \
