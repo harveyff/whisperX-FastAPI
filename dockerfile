@@ -111,17 +111,33 @@ RUN if [ "$USE_PYTORCH_NIGHTLY" = "true" ]; then \
         && python -c "import torch; import torchvision; print(f'PyTorch: {torch.__version__}, torchvision: {torchvision.__version__}'); print('✓ torch and torchvision are compatible')"; \
     else \
         echo "Installing PyTorch for RTX 5090 support..." \
-        && echo "Note: Will try PyTorch 2.4.0 first (compatible with torchaudio 2.3.1, may support RTX 5090)" \
+        && echo "Note: Will try PyTorch 2.3.0 first (compatible with torchaudio 2.3.1, may support RTX 5090)" \
         && uv pip uninstall --system torch torchvision torchaudio || true \
-        && (uv pip install --system --index-url https://download.pytorch.org/whl/cu128 "torch==2.4.0" "torchvision==0.19.0" || \
-            echo "PyTorch 2.4.0 not available, trying 2.5.0..." \
-            && (uv pip install --system --index-url https://download.pytorch.org/whl/cu128 "torch==2.5.0" "torchvision==0.20.0" || \
-                echo "PyTorch 2.5.0 not available, trying 2.6.0..." \
-                && (uv pip install --system --index-url https://download.pytorch.org/whl/cu128 "torch==2.6.0" "torchvision==0.21.0" || \
-                    echo "Specific versions not available, installing latest stable..." \
-                    && uv pip install --system --index-url https://download.pytorch.org/whl/cu128 torch torchvision))) \
+        && (uv pip install --system --index-url https://download.pytorch.org/whl/cu128 "torch==2.3.0" "torchvision==0.18.0" || \
+            echo "PyTorch 2.3.0 not available, trying 2.4.0..." \
+            && (uv pip install --system --index-url https://download.pytorch.org/whl/cu128 "torch==2.4.0" "torchvision==0.19.0" || \
+                echo "PyTorch 2.4.0 not available, trying 2.5.0..." \
+                && (uv pip install --system --index-url https://download.pytorch.org/whl/cu128 "torch==2.5.0" "torchvision==0.20.0" || \
+                    echo "PyTorch 2.5.0 not available, trying 2.6.0..." \
+                    && (uv pip install --system --index-url https://download.pytorch.org/whl/cu128 "torch==2.6.0" "torchvision==0.21.0" || \
+                        echo "Specific versions not available, installing latest stable together..." \
+                        && uv pip install --system --index-url https://download.pytorch.org/whl/cu128 torch torchvision)))) \
         && echo "Verifying torch and torchvision compatibility..." \
-        && python -c "import torch; import torchvision; print(f'PyTorch: {torch.__version__}, torchvision: {torchvision.__version__}'); print('✓ torch and torchvision are compatible')"; \
+        && python -c "import torch; import torchvision; print(f'PyTorch: {torch.__version__}, torchvision: {torchvision.__version__}'); print('Testing torchvision import...'); from torchvision import transforms; print('✓ torch and torchvision are compatible')" || \
+            (echo "ERROR: torch and torchvision are not compatible. Attempting to fix..." \
+            && TORCH_VER=$(python -c "import torch; print(torch.__version__)" 2>/dev/null || echo "") \
+            && echo "Detected torch version: $TORCH_VER" \
+            && if [ -n "$TORCH_VER" ]; then \
+                echo "Trying to install matching torchvision versions..." \
+                && (uv pip install --system --index-url https://download.pytorch.org/whl/cu128 --force-reinstall --no-deps "torchvision==0.18.0" || \
+                    uv pip install --system --index-url https://download.pytorch.org/whl/cu128 --force-reinstall --no-deps "torchvision==0.19.0" || \
+                    uv pip install --system --index-url https://download.pytorch.org/whl/cu128 --force-reinstall --no-deps "torchvision==0.20.0" || \
+                    uv pip install --system --index-url https://download.pytorch.org/whl/cu128 --force-reinstall --no-deps "torchvision==0.21.0" || \
+                    echo "WARNING: Could not install matching torchvision version"); \
+            fi \
+            && echo "Re-verifying compatibility..." \
+            && python -c "import torch; import torchvision; from torchvision import transforms; print('✓ torch and torchvision are now compatible')" || \
+            (echo "ERROR: Still incompatible. This may cause runtime errors." && exit 1)); \
     fi \
     && echo "PyTorch installed, version: $(python -c 'import torch; print(torch.__version__)')" \
     && python -c "import torch; import os; torch_lib = os.path.join(os.path.dirname(torch.__file__), 'lib'); print(f'PyTorch lib path: {torch_lib}'); import glob; nccl_libs = glob.glob(os.path.join(torch_lib, '*nccl*')); print(f'NCCL libraries in PyTorch: {nccl_libs}')" \
