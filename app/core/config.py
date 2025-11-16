@@ -1,9 +1,28 @@
 """Configuration module for the WhisperX FastAPI application."""
 
+import os
 from functools import lru_cache
 from typing import Optional
 
-import torch
+try:
+    import torch
+except (ImportError, OSError, RuntimeError) as e:
+    # Provide helpful error message for NCCL-related import errors
+    error_msg = str(e)
+    if "ncclGroupSimulateEnd" in error_msg or "undefined symbol" in error_msg:
+        ld_preload = os.environ.get("LD_PRELOAD", "not set")
+        ld_library_path = os.environ.get("LD_LIBRARY_PATH", "not set")
+        raise ImportError(
+            f"PyTorch import failed due to NCCL compatibility issue: {error_msg}\n"
+            f"This usually indicates that PyTorch 2.8+ requires NCCL 2.18+ with the "
+            f"'ncclGroupSimulateEnd' symbol.\n"
+            f"Diagnostic information:\n"
+            f"  LD_PRELOAD: {ld_preload}\n"
+            f"  LD_LIBRARY_PATH: {ld_library_path}\n"
+            f"Please ensure the startup script correctly sets LD_PRELOAD to a compatible NCCL library."
+        ) from e
+    raise
+
 from pydantic import Field, computed_field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
