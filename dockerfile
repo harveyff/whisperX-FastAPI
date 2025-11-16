@@ -125,9 +125,11 @@ RUN if [ "$USE_PYTORCH_NIGHTLY" = "true" ]; then \
     && ldconfig \
     && echo "Determining correct NCCL library to use..." \
     && TORCH_LIB="/usr/local/lib/python3.11/dist-packages/torch/lib" \
-    && SYSTEM_NCCL="/usr/lib/x86_64-linux-gnu/libnccl.so.2" \
+    && ARCH=$(uname -m) \
+    && SYSTEM_NCCL="/usr/lib/${ARCH}-linux-gnu/libnccl.so.2" \
     && NCCL_TO_USE="" \
-    && echo "Checking system NCCL..." \
+    && echo "Architecture: $ARCH" \
+    && echo "Checking system NCCL at $SYSTEM_NCCL..." \
     && if [ -f "$SYSTEM_NCCL" ]; then \
         if nm -D "$SYSTEM_NCCL" 2>/dev/null | grep -q "ncclGroupSimulateEnd"; then \
             echo "✓ System NCCL has required symbol" \
@@ -137,7 +139,7 @@ RUN if [ "$USE_PYTORCH_NIGHTLY" = "true" ]; then \
             echo "✗ System NCCL missing symbol"; \
         fi; \
     else \
-        echo "✗ System NCCL not found"; \
+        echo "✗ System NCCL not found at $SYSTEM_NCCL"; \
     fi \
     && if [ -z "$NCCL_TO_USE" ] && [ -d "$TORCH_LIB" ]; then \
         echo "Checking PyTorch bundled NCCL..." \
@@ -227,48 +229,30 @@ if [ -f /etc/pytorch_nccl_lib.txt ]; then
         fi
         echo "✓ NCCL symbol verified"
         
-        # Test PyTorch import with LD_PRELOAD set
-        echo "Testing PyTorch import with build-time NCCL..."
-        # Try importing with LD_PRELOAD, if it fails, try without (for single GPU inference)
-        if ! env LD_PRELOAD="$NCCL_LIB" python -c "import torch; print(f'✓ PyTorch {torch.__version__} imported successfully')" 2>&1; then
-            echo "WARNING: PyTorch import failed with LD_PRELOAD, trying workaround..."
-            # Workaround: Try to disable NCCL initialization for single GPU
-            export NCCL_DEBUG=INFO
-            export NCCL_P2P_DISABLE=1
-            export NCCL_SHM_DISABLE=1
-            export NCCL_IB_DISABLE=1
-            # Try importing again without LD_PRELOAD
-            if ! python -c "import torch; print(f'✓ PyTorch {torch.__version__} imported successfully')" 2>&1; then
-                echo "ERROR: PyTorch import failed even with workarounds"
-                echo "LD_PRELOAD: $LD_PRELOAD"
-                echo "LD_LIBRARY_PATH: $LD_LIBRARY_PATH"
-                exit 1
-            fi
-            echo "✓ PyTorch imported with workarounds (NCCL disabled for single GPU)"
-        fi
-        
+        # Set NCCL environment variables for single GPU inference
         export NCCL_P2P_DISABLE=1
         export NCCL_SHM_DISABLE=1
+        export NCCL_IB_DISABLE=1
         
-        # Use env to ensure LD_PRELOAD is set when Python starts
-        # If LD_PRELOAD fails, try without it (single GPU inference may not need NCCL)
-        if env LD_PRELOAD="$NCCL_LIB" python -c "import torch" 2>/dev/null; then
-            exec env LD_PRELOAD="$NCCL_LIB" python -m gunicorn --bind 0.0.0.0:8000 --workers 1 --timeout 0 --log-config gunicorn_logging.conf app.main:app -k uvicorn.workers.UvicornWorker "$@"
-        else
-            echo "WARNING: LD_PRELOAD failed, trying without it (single GPU mode)"
-            export NCCL_DEBUG=INFO
-            export NCCL_P2P_DISABLE=1
-            export NCCL_SHM_DISABLE=1
-            export NCCL_IB_DISABLE=1
-            exec python -m gunicorn --bind 0.0.0.0:8000 --workers 1 --timeout 0 --log-config gunicorn_logging.conf app.main:app -k uvicorn.workers.UvicornWorker "$@"
+        # Test PyTorch import with LD_PRELOAD set before starting gunicorn
+        echo "Testing PyTorch import with build-time NCCL..."
+        if ! python -c "import torch; print(f'✓ PyTorch {torch.__version__} imported successfully')" 2>&1; then
+            echo "ERROR: PyTorch import failed with build-time NCCL!"
+            echo "LD_PRELOAD: $LD_PRELOAD"
+            echo "LD_LIBRARY_PATH: $LD_LIBRARY_PATH"
+            exit 1
         fi
+        
+        # Start gunicorn with LD_PRELOAD set
+        exec python -m gunicorn --bind 0.0.0.0:8000 --workers 1 --timeout 0 --log-config gunicorn_logging.conf app.main:app -k uvicorn.workers.UvicornWorker "$@"
     fi
 fi
 
 # Fallback to runtime detection if build-time file not found
 # Find NCCL libraries
+ARCH=$(uname -m)
 TORCH_LIB="/usr/local/lib/python3.11/dist-packages/torch/lib"
-SYSTEM_NCCL="/usr/lib/x86_64-linux-gnu/libnccl.so.2"
+SYSTEM_NCCL="/usr/lib/${ARCH}-linux-gnu/libnccl.so.2"
 
 # Check if system NCCL has the required symbol
 NCCL_LIB=""
@@ -276,33 +260,46 @@ if [ -f "$SYSTEM_NCCL" ]; then
     if nm -D "$SYSTEM_NCCL" 2>/dev/null | grep -q "ncclGroupSimulateEnd"; then
         echo "System NCCL has required symbol, using system NCCL"
         NCCL_LIB="$SYSTEM_NCCL"
-        export LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu:$TORCH_LIB:/usr/local/cuda/lib64:$LD_LIBRARY_PATH
     elif [ -d "$TORCH_LIB" ] && ls "$TORCH_LIB"/libnccl*.so* 1> /dev/null 2>&1; then
         echo "System NCCL missing symbol, trying PyTorch bundled NCCL"
         NCCL_LIB=$(ls "$TORCH_LIB"/libnccl.so* 2>/dev/null | head -1)
-        export LD_LIBRARY_PATH=$TORCH_LIB:/usr/lib/x86_64-linux-gnu:/usr/local/cuda/lib64:$LD_LIBRARY_PATH
     else
         echo "Warning: No suitable NCCL found, using system NCCL anyway"
         NCCL_LIB="$SYSTEM_NCCL"
-        export LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu:$TORCH_LIB:/usr/local/cuda/lib64:$LD_LIBRARY_PATH
     fi
 else
     echo "System NCCL not found, using PyTorch bundled NCCL if available"
     if [ -d "$TORCH_LIB" ] && ls "$TORCH_LIB"/libnccl*.so* 1> /dev/null 2>&1; then
         NCCL_LIB=$(ls "$TORCH_LIB"/libnccl*.so* 2>/dev/null | head -1)
     fi
-    export LD_LIBRARY_PATH=$TORCH_LIB:/usr/local/cuda/lib64:$LD_LIBRARY_PATH
 fi
 
 # Use LD_PRELOAD to force loading correct NCCL library before PyTorch loads
 if [ -n "$NCCL_LIB" ] && [ -f "$NCCL_LIB" ]; then
-    export LD_PRELOAD="$NCCL_LIB:$LD_PRELOAD"
+    export LD_PRELOAD="$NCCL_LIB"
+    NCCL_DIR=$(dirname "$NCCL_LIB")
+    export LD_LIBRARY_PATH="$NCCL_DIR:$TORCH_LIB:/usr/local/cuda/lib64:$LD_LIBRARY_PATH"
     echo "Using LD_PRELOAD to force NCCL: $NCCL_LIB"
+    
+    # Verify symbol
+    if ! nm -D "$NCCL_LIB" 2>/dev/null | grep -q "ncclGroupSimulateEnd"; then
+        echo "WARNING: NCCL library does not contain ncclGroupSimulateEnd symbol!"
+    fi
 fi
 
 # Set NCCL environment variables for single GPU inference
 export NCCL_P2P_DISABLE=1
 export NCCL_SHM_DISABLE=1
+export NCCL_IB_DISABLE=1
+
+# Test PyTorch import before starting gunicorn
+echo "Testing PyTorch import..."
+if ! python -c "import torch; print(f'✓ PyTorch {torch.__version__} imported successfully')" 2>&1; then
+    echo "ERROR: PyTorch import failed!"
+    echo "LD_PRELOAD: ${LD_PRELOAD:-not set}"
+    echo "LD_LIBRARY_PATH: $LD_LIBRARY_PATH"
+    exit 1
+fi
 
 exec python -m gunicorn --bind 0.0.0.0:8000 --workers 1 --timeout 0 --log-config gunicorn_logging.conf app.main:app -k uvicorn.workers.UvicornWorker "$@"
 EOF
