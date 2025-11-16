@@ -204,21 +204,24 @@ RUN if [ "$USE_PYTORCH_NIGHTLY" = "true" ]; then \
 # Use LD_PRELOAD to force loading correct NCCL library if needed
 RUN cat > /usr/local/bin/start.sh << 'EOF' && chmod +x /usr/local/bin/start.sh
 #!/bin/bash
-set -e
+# Don't use set -e initially, we want to see all errors
+set +e
 
-# Force output to stderr and stdout to ensure visibility
-# Write to both stderr and a log file for debugging
+# Force all output to stderr (which gunicorn logs capture)
 exec 1>&2
 
-# Also write to a log file for debugging
-LOG_FILE="/tmp/startup.log"
-exec 3>> "$LOG_FILE"
-
-# Force output to ensure script is executing
+# CRITICAL: Force output immediately to verify script execution
+echo "========================================" >&2
 echo "=== WhisperX Service Startup Script ===" >&2
+echo "========================================" >&2
 echo "Starting at $(date)" >&2
 echo "Script PID: $$" >&2
 echo "Current user: $(whoami)" >&2
+echo "Script path: $0" >&2
+echo "Arguments: $@" >&2
+
+# Now enable error handling
+set -e
 
 # Update library cache
 ldconfig
@@ -284,7 +287,12 @@ if [ -f /etc/pytorch_nccl_lib.txt ]; then
 fi
 
 # Fallback to runtime detection if build-time file not found
-echo "Build-time NCCL file not found, performing runtime detection..." >&2
+echo "" >&2
+echo "========================================" >&2
+echo "Build-time NCCL file not found!" >&2
+echo "File /etc/pytorch_nccl_lib.txt exists: $([ -f /etc/pytorch_nccl_lib.txt ] && echo 'YES' || echo 'NO')" >&2
+echo "Performing runtime detection..." >&2
+echo "========================================" >&2
 
 # Check if system NCCL has the required symbol
 if [ -f "$SYSTEM_NCCL" ]; then
@@ -349,18 +357,30 @@ export NCCL_SHM_DISABLE=1
 export NCCL_IB_DISABLE=1
 
 # Test PyTorch import before starting gunicorn
+echo "" >&2
+echo "========================================" >&2
 echo "=== Final Configuration ===" >&2
-echo "LD_PRELOAD: ${LD_PRELOAD:-not set}" >&2
+echo "========================================" >&2
+echo "LD_PRELOAD: ${LD_PRELOAD:-NOT SET}" >&2
 echo "LD_LIBRARY_PATH: $LD_LIBRARY_PATH" >&2
 echo "NCCL_P2P_DISABLE: $NCCL_P2P_DISABLE" >&2
 echo "NCCL_SHM_DISABLE: $NCCL_SHM_DISABLE" >&2
+echo "NCCL_LIB variable: ${NCCL_LIB:-NOT SET}" >&2
+echo "" >&2
 
 echo "Testing PyTorch import..." >&2
 if ! python -c "import torch; print(f'✓ PyTorch {torch.__version__} imported successfully')" 2>&1; then
+    echo "" >&2
+    echo "========================================" >&2
     echo "ERROR: PyTorch import failed!" >&2
+    echo "========================================" >&2
+    echo "LD_PRELOAD: ${LD_PRELOAD:-NOT SET}" >&2
+    echo "LD_LIBRARY_PATH: $LD_LIBRARY_PATH" >&2
     echo "This usually means LD_PRELOAD is not set correctly or NCCL library is incompatible." >&2
+    echo "" >&2
     exit 1
 fi
+echo "✓ PyTorch import test passed" >&2
 
 # Start gunicorn with environment variables explicitly set
 # CRITICAL: Use env to ensure LD_PRELOAD is passed to all child processes including workers
