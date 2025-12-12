@@ -40,11 +40,13 @@ COPY app/gunicorn_logging.conf .
 # UV automatically selects CUDA 12.8 wheels on Linux
 # Install PyTorch nightly builds for RTX 5090 (sm_120) and other latest GPU support
 # Use uv pip install --system to install packages to system Python
+# Note: Install torch and torchvision from nightly, but keep torchaudio from stable to avoid compatibility issues
 RUN uv pip install --system -e . \
     && uv pip install --system ctranslate2==4.6.0 \
     && echo "Installing PyTorch nightly builds for latest GPU support (including RTX 5090 sm_120)..." \
     && uv pip uninstall --system -y torch torchvision torchaudio || true \
-    && uv pip install --system --pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cu128 \
+    && uv pip install --system --pre torch torchvision --index-url https://download.pytorch.org/whl/nightly/cu128 \
+    && uv pip install --system torchaudio --index-url https://download.pytorch.org/whl/cu128 \
     && rm -rf /root/.cache /tmp/* /root/.uv /var/cache/* \
     && find /usr/local -type d -name '__pycache__' -exec rm -rf {} + 2>/dev/null || true \
     && find /usr/local -type f -name '*.pyc' -delete \
@@ -52,4 +54,4 @@ RUN uv pip install --system -e . \
 
 EXPOSE 8000
 
-ENTRYPOINT ["gunicorn", "--bind", "0.0.0.0:8000", "--workers", "1", "--timeout", "0", "--log-config", "gunicorn_logging.conf", "app.main:app", "-k", "uvicorn.workers.UvicornWorker"]
+ENTRYPOINT ["gunicorn", "--bind", "0.0.0.0:8000", "--workers", "1", "--timeout", "0", "--log-config", "gunicorn_logging.conf", "--log-level", "info", "app.main:app", "-k", "uvicorn.workers.UvicornWorker"]
