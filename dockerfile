@@ -23,9 +23,9 @@ RUN export DEBIAN_FRONTEND=noninteractive \
 # Install UV for package management using official installer
 # This avoids ghcr.io access issues (403 Forbidden)
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh \
-    && mv /root/.cargo/bin/uv /usr/local/bin/uv \
-    && mv /root/.cargo/bin/uvx /usr/local/bin/uvx \
-    && rm -rf /root/.cargo
+    && mv /root/.local/bin/uv /usr/local/bin/uv \
+    && mv /root/.local/bin/uvx /usr/local/bin/uvx \
+    && rm -rf /root/.local/bin
 
 WORKDIR /app
 
