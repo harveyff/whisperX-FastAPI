@@ -39,9 +39,9 @@ dependencies = [
     "tqdm==4.67.1",
     "uvicorn==0.38.0",
     "whisperx==3.7.2",
-    "torch<=2.8.0",
-    "torchaudio<=2.8.0",
-    "torchvision<=0.23.0",
+    "torch>=2.0.0",  # RTX 5090 (sm_120) requires PyTorch nightly builds - see README
+    "torchaudio>=2.0.0",
+    "torchvision>=0.15.0",
     "setuptools>=78.1.1",  # CVE-2025-47273 fix
 ]
 
@@ -61,7 +61,9 @@ dev = [
 
 [tool.uv]
 # PyTorch index configuration with environment markers for platform-specific builds
-# CUDA 12.6 on Linux, CPU-only on Windows and macOS
+# CUDA 12.8 on Linux, CPU-only on Windows and macOS
+# Note: Docker images include PyTorch nightly builds by default for RTX 5090 (sm_120) support
+# For local installation with RTX 5090, see README troubleshooting section
 
 [tool.uv.sources]
 torch = [

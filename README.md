@@ -172,14 +172,7 @@ LOG_LEVEL=<<LOG LEVEL>>
 
 2. Build Image
 
-using `docker-compose.yaml`
-
-```sh
-#build and start the image using compose file
-docker-compose up
-```
-
-alternative approach
+The Docker image includes PyTorch nightly builds by default, which supports the latest GPUs including RTX 5090 (sm_120):
 
 ```sh
 #build image
@@ -187,6 +180,13 @@ docker build -t whisperx-service .
 
 # Run Container
 docker run -d --gpus all -p 8000:8000 --env-file .env whisperx-service
+```
+
+Or using `docker-compose.yml`:
+
+```sh
+#build and start the image using compose file
+docker-compose up
 ```
 
 The API will be accessible at <http://127.0.0.1:8000>.
@@ -227,7 +227,36 @@ The models used by whisperX are stored in `root/.cache`, if you want to avoid do
    - Ensure NVIDIA drivers and CUDA are correctly installed.
    - Verify that Docker is configured to use the GPU (`nvidia-docker`).
 
-5. **Warnings Not Filtered**
+5. **RTX 5090 (sm_120) Compatibility Error (Local Installation Only)**
+
+   If you're running locally (not in Docker) and encounter errors like:
+   ```
+   NVIDIA GeForce RTX 5090 Laptop GPU with CUDA capability sm_120 is not compatible
+   CUDA error: no kernel image is available for execution on the device
+   ```
+   
+   The RTX 5090 (Blackwell architecture) requires PyTorch nightly builds that support sm_120. 
+   **Note:** Docker images already include PyTorch nightly builds by default.
+   
+   **For local installation, install PyTorch nightly builds:**
+   ```bash
+   # Uninstall current PyTorch
+   uv pip uninstall torch torchvision torchaudio
+   
+   # Install PyTorch nightly with CUDA 12.8
+   uv pip install --pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cu128
+   ```
+   
+   **Verify installation:**
+   ```python
+   import torch
+   print(f"PyTorch version: {torch.__version__}")
+   print(f"CUDA available: {torch.cuda.is_available()}")
+   print(f"CUDA version: {torch.version.cuda}")
+   print(f"Device name: {torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'N/A'}")
+   ```
+
+6. **Warnings Not Filtered**
    - Ensure the `FILTER_WARNING` environment variable is set to `true` in the `.env` file.
 
 ### Logs and Debugging
