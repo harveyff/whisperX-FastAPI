@@ -39,7 +39,8 @@ COPY app/gunicorn_logging.conf .
 # Install Python dependencies using UV with pyproject.toml
 # UV automatically selects CUDA 12.8 wheels on Linux
 # Install PyTorch nightly builds for RTX 5090 (sm_120) and other latest GPU support
-RUN uv sync --frozen --no-dev \
+# Use --system flag to install packages to system Python instead of virtual environment
+RUN uv sync --frozen --no-dev --system \
     && uv pip install --system ctranslate2==4.6.0 \
     && echo "Installing PyTorch nightly builds for latest GPU support (including RTX 5090 sm_120)..." \
     && uv pip uninstall --system -y torch torchvision torchaudio || true \
