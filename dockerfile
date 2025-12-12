@@ -9,6 +9,8 @@ RUN export DEBIAN_FRONTEND=noninteractive \
     && apt-get -y update \
     && apt-get -y install --no-install-recommends \
     python3.11=3.11.0~rc1-1~22.04 \
+    python3-pip \
+    curl \
     git \
     ffmpeg=7:4.4.2-0ubuntu0.22.04.1 \
     libcudnn9-cuda-12=9.8.0.87-1 \
@@ -18,8 +20,12 @@ RUN export DEBIAN_FRONTEND=noninteractive \
     && ln -s -f /usr/bin/python${PYTHON_VERSION} /usr/bin/python3 \
     && ln -s -f /usr/bin/python${PYTHON_VERSION} /usr/bin/python
 
-# Install UV for package management
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+# Install UV for package management using official installer
+# This avoids ghcr.io access issues (403 Forbidden)
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh \
+    && mv /root/.cargo/bin/uv /usr/local/bin/uv \
+    && mv /root/.cargo/bin/uvx /usr/local/bin/uvx \
+    && rm -rf /root/.cargo
 
 WORKDIR /app
 
