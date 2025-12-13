@@ -1,18 +1,15 @@
 """Main entry point for the FastAPI application."""
 
 # CRITICAL: Apply compatibility fixes BEFORE any other imports
-# This must happen before torchvision is imported anywhere
+# Import torchvision fix first to register missing operators
+import app.torchvision_fix  # noqa: F401, E402
+
+# Apply torchaudio compatibility fix
 try:
-    import torch
-    
-    # Fix torchaudio AudioMetaData compatibility
-    try:
-        import torchaudio
-        if not hasattr(torchaudio, 'AudioMetaData'):
-            from types import SimpleNamespace
-            torchaudio.AudioMetaData = SimpleNamespace
-    except ImportError:
-        pass
+    import torchaudio
+    if not hasattr(torchaudio, 'AudioMetaData'):
+        from types import SimpleNamespace
+        torchaudio.AudioMetaData = SimpleNamespace
 except ImportError:
     pass
 

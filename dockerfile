@@ -48,6 +48,9 @@ RUN uv pip install --system -e . \
     && uv pip uninstall --system -y torch torchvision torchaudio || true \
     && echo "Installing all PyTorch packages from nightly to ensure version compatibility..." \
     && uv pip install --system --pre --no-cache-dir --force-reinstall torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cu128 \
+    && echo "Applying torchvision compatibility patch..." \
+    && python3 -c "import torch; exec('try:\n    @torch.library.register_fake(\"torchvision::nms\")\n    def nms_fake(boxes, scores, iou_threshold):\n        return torch.tensor([], dtype=torch.long)\nexcept Exception as e:\n    print(f\"Patch failed: {e}\")\n    pass')" || true \
+    && find /usr/local/lib/python3.*/dist-packages/torchvision -name "_meta_registrations.py" -exec sed -i 's/@torch.library.register_fake("torchvision::nms")/# @torch.library.register_fake("torchvision::nms")  # Patched for compatibility/' {} \; || true \
     && echo "Force upgrading pyannote.audio and numpy for torchaudio compatibility..." \
     && uv pip uninstall --system -y pyannote.audio pyannote.core pyannote.metrics pyannote.pipeline pyannote.database || true \
     && uv pip install --system --upgrade --force-reinstall --no-cache-dir "numpy>=2.3" "pyannote.audio>=4.0.1" \
