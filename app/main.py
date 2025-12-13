@@ -6,6 +6,16 @@ from app.core.warnings_filter import filter_warnings
 
 filter_warnings()
 
+# Apply torchaudio compatibility fix before importing anything that uses pyannote.audio
+try:
+    import torchaudio
+    if not hasattr(torchaudio, 'AudioMetaData'):
+        # Create compatibility alias for newer torchaudio versions
+        from types import SimpleNamespace
+        torchaudio.AudioMetaData = SimpleNamespace
+except ImportError:
+    pass
+
 import logging  # noqa: E402
 import time  # noqa: E402
 from contextlib import asynccontextmanager  # noqa: E402
