@@ -54,6 +54,8 @@ RUN uv pip install --system -e . \
     && echo "Force upgrading pyannote.audio and numpy for torchaudio compatibility..." \
     && uv pip uninstall --system -y pyannote.audio pyannote.core pyannote.metrics pyannote.pipeline pyannote.database || true \
     && uv pip install --system --upgrade --force-reinstall --no-cache-dir "numpy>=2.3" "pyannote.audio>=4.0.1" \
+    && echo "Fixing huggingface-hub version compatibility..." \
+    && uv pip install --system --no-cache-dir "huggingface-hub>=0.34.0,<1.0" \
     && rm -rf /root/.cache /tmp/* /root/.uv /var/cache/* \
     && find /usr/local -type d -name '__pycache__' -exec rm -rf {} + 2>/dev/null || true \
     && find /usr/local -type f -name '*.pyc' -delete \
