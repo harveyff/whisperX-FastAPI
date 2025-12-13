@@ -5,26 +5,6 @@
 try:
     import torch
     
-    # Fix torchvision nms operator compatibility with nightly torch
-    # We need to register the operator before torchvision tries to register it
-    # This happens during torchvision import, so we must do it first
-    try:
-        # Try to register the fake operator
-        @torch.library.register_fake("torchvision::nms")
-        def nms_fake(boxes, scores, iou_threshold):
-            return torch.tensor([], dtype=torch.long)
-    except (RuntimeError, AttributeError, TypeError):
-        # If that fails, try to create the namespace manually
-        try:
-            if not hasattr(torch.ops, 'torchvision'):
-                # Create a module-like object for torchvision ops
-                import types
-                torchvision_ops = types.ModuleType('torchvision')
-                torchvision_ops.nms = lambda *args, **kwargs: torch.tensor([], dtype=torch.long)
-                torch.ops.torchvision = torchvision_ops
-        except Exception:
-            pass
-    
     # Fix torchaudio AudioMetaData compatibility
     try:
         import torchaudio
