@@ -51,10 +51,12 @@ RUN uv pip install --system -e . \
     && echo "Applying torchvision compatibility patch..." \
     && python3 -c "import torch; exec('try:\n    @torch.library.register_fake(\"torchvision::nms\")\n    def nms_fake(boxes, scores, iou_threshold):\n        return torch.tensor([], dtype=torch.long)\nexcept Exception as e:\n    print(f\"Patch failed: {e}\")\n    pass')" || true \
     && find /usr/local/lib/python3.*/dist-packages/torchvision -name "_meta_registrations.py" -exec sed -i 's/@torch.library.register_fake("torchvision::nms")/# @torch.library.register_fake("torchvision::nms")  # Patched for compatibility/' {} \; || true \
-    && echo "Installing compatible pyannote.audio version for whisperx (supports use_auth_token)..." \
+    && echo "Force upgrading pyannote.audio and numpy for torchaudio compatibility..." \
     && uv pip uninstall --system -y pyannote.audio pyannote.core pyannote.metrics pyannote.pipeline pyannote.database || true \
-    && uv pip install --system --no-cache-dir "pyannote.audio>=3.1.1,<4.0.0" \
-    && echo "Note: pyannote.audio<4.0.0 is required for whisperx compatibility (use_auth_token support)" \
+    && uv pip install --system --upgrade --force-reinstall --no-cache-dir "numpy>=2.3" "pyannote.audio>=4.0.1" \
+    && echo "Patching whisperx to use 'token' instead of 'use_auth_token' for pyannote.audio>=4.0.1..." \
+    && find /usr/local/lib/python3.*/dist-packages/whisperx -name "*.py" -type f -exec sed -i 's/use_auth_token=/token=/g' {} \; || true \
+    && find /usr/local/lib/python3.*/dist-packages/whisperx -name "*.py" -type f -exec sed -i "s/use_auth_token=/token=/g" {} \; || true \
     && echo "Fixing huggingface-hub version compatibility..." \
     && uv pip install --system --no-cache-dir "huggingface-hub>=0.34.0,<1.0" \
     && rm -rf /root/.cache /tmp/* /root/.uv /var/cache/* \
