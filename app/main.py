@@ -1,32 +1,46 @@
 """Main entry point for the FastAPI application."""
 
+# CRITICAL: Apply compatibility fixes BEFORE any other imports
+# This must happen before torchvision is imported anywhere
+try:
+    import torch
+    
+    # Fix torchvision nms operator compatibility with nightly torch
+    # We need to register the operator before torchvision tries to register it
+    # This happens during torchvision import, so we must do it first
+    try:
+        # Try to register the fake operator
+        @torch.library.register_fake("torchvision::nms")
+        def nms_fake(boxes, scores, iou_threshold):
+            return torch.tensor([], dtype=torch.long)
+    except (RuntimeError, AttributeError, TypeError):
+        # If that fails, try to create the namespace manually
+        try:
+            if not hasattr(torch.ops, 'torchvision'):
+                # Create a module-like object for torchvision ops
+                import types
+                torchvision_ops = types.ModuleType('torchvision')
+                torchvision_ops.nms = lambda *args, **kwargs: torch.tensor([], dtype=torch.long)
+                torch.ops.torchvision = torchvision_ops
+        except Exception:
+            pass
+    
+    # Fix torchaudio AudioMetaData compatibility
+    try:
+        import torchaudio
+        if not hasattr(torchaudio, 'AudioMetaData'):
+            from types import SimpleNamespace
+            torchaudio.AudioMetaData = SimpleNamespace
+    except ImportError:
+        pass
+except ImportError:
+    pass
+
 from collections.abc import AsyncGenerator
 
 from app.core.warnings_filter import filter_warnings
 
 filter_warnings()
-
-# Apply torchaudio compatibility fix before importing anything that uses pyannote.audio
-try:
-    import torchaudio
-    if not hasattr(torchaudio, 'AudioMetaData'):
-        # Create compatibility alias for newer torchaudio versions
-        from types import SimpleNamespace
-        torchaudio.AudioMetaData = SimpleNamespace
-except ImportError:
-    pass
-
-# Fix torchvision compatibility issue with nightly torch
-# Register the missing nms operator before torchvision tries to use it
-try:
-    import torch
-    # Register fake nms operator to avoid registration error
-    if not hasattr(torch.ops, 'torchvision'):
-        @torch.library.register_fake("torchvision::nms")
-        def nms_fake(boxes, scores, iou_threshold):
-            return torch.tensor([], dtype=torch.long)
-except (ImportError, RuntimeError, AttributeError):
-    pass
 
 import logging  # noqa: E402
 import time  # noqa: E402
