@@ -55,8 +55,54 @@ RUN uv pip install --system -e . \
     && uv pip uninstall --system -y pyannote.audio pyannote.core pyannote.metrics pyannote.pipeline pyannote.database || true \
     && uv pip install --system --upgrade --force-reinstall --no-cache-dir "numpy>=2.3" "pyannote.audio>=4.0.1" \
     && echo "Patching whisperx to use 'token' instead of 'use_auth_token' for pyannote.audio>=4.0.1..." \
-    && find /usr/local/lib/python3.*/dist-packages/whisperx -name "*.py" -type f -exec sed -i 's/use_auth_token=/token=/g' {} \; || true \
-    && find /usr/local/lib/python3.*/dist-packages/whisperx -name "*.py" -type f -exec sed -i "s/use_auth_token=/token=/g" {} \; || true \
+    && python3 << 'EOF'
+import re
+import glob
+
+# Find all whisperx Python files
+whisperx_path = glob.glob('/usr/local/lib/python3.*/dist-packages/whisperx/**/*.py', recursive=True)
+
+for filepath in whisperx_path:
+    try:
+        with open(filepath, 'r', encoding='utf-8') as f:
+            lines = f.readlines()
+        
+        modified = False
+        new_lines = []
+        
+        for line in lines:
+            original_line = line
+            
+            # Replace parameter definitions: use_auth_token= -> token=
+            line = re.sub(r'\buse_auth_token\s*=', 'token=', line)
+            
+            # Replace in function calls: use_auth_token=variable -> token=variable
+            line = re.sub(r'\buse_auth_token\s*=\s*(\w+)', r'token=\1', line)
+            
+            # Replace variable references when used as value: token=use_auth_token -> token=token
+            # This handles the case where parameter name was changed but variable name wasn't
+            line = re.sub(r'token\s*=\s*use_auth_token\b', 'token=token', line)
+            
+            # Replace standalone variable references (but be careful with context)
+            # Only replace if it's clearly a variable (not in strings, comments, etc.)
+            if 'use_auth_token' in line and not (line.strip().startswith('#') or '"use_auth_token"' in line or "'use_auth_token'" in line):
+                # Replace use_auth_token as a variable name with token
+                # But preserve it if it's part of a larger identifier
+                line = re.sub(r'\buse_auth_token\b(?=\s*[,\)\]\}:]|\s*$)', 'token', line)
+            
+            if line != original_line:
+                modified = True
+            new_lines.append(line)
+        
+        if modified:
+            with open(filepath, 'w', encoding='utf-8') as f:
+                f.writelines(new_lines)
+    except Exception as e:
+        print(f"Error processing {filepath}: {e}")
+        pass
+EOF
+
+
     && echo "Fixing huggingface-hub version compatibility..." \
     && uv pip install --system --no-cache-dir "huggingface-hub>=0.34.0,<1.0" \
     && rm -rf /root/.cache /tmp/* /root/.uv /var/cache/* \
