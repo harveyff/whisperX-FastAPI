@@ -40,15 +40,15 @@ COPY app/gunicorn_logging.conf .
 # UV automatically selects CUDA 12.8 wheels on Linux
 # Install PyTorch nightly builds for RTX 5090 (sm_120) and other latest GPU support
 # Use uv pip install --system to install packages to system Python
-# Install torch and torchvision from nightly, but use compatible torchaudio version
-# pyannote.audio requires torchaudio with AudioMetaData (available in 2.0.x - 2.3.x)
-# Explicitly install torchaudio 2.3.0 which has AudioMetaData and supports CUDA 12.8
+# Install all PyTorch packages from nightly to ensure version compatibility
+# pyannote.audio compatibility: upgrade to 4.0.1+ which removes AudioMetaData dependency
 RUN uv pip install --system -e . \
     && uv pip install --system ctranslate2==4.6.0 \
     && echo "Installing PyTorch nightly builds for latest GPU support (including RTX 5090 sm_120)..." \
     && uv pip uninstall --system -y torch torchvision torchaudio || true \
-    && uv pip install --system --pre torch torchvision --index-url https://download.pytorch.org/whl/nightly/cu128 \
-    && uv pip install --system torchaudio==2.3.0 --index-url https://download.pytorch.org/whl/cu128 \
+    && uv pip install --system --pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cu128 \
+    && echo "Upgrading pyannote.audio and numpy for torchaudio compatibility..." \
+    && uv pip install --system --upgrade "numpy>=2.3" "pyannote.audio>=4.0.1" \
     && rm -rf /root/.cache /tmp/* /root/.uv /var/cache/* \
     && find /usr/local -type d -name '__pycache__' -exec rm -rf {} + 2>/dev/null || true \
     && find /usr/local -type f -name '*.pyc' -delete \
