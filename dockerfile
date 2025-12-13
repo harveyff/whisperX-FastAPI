@@ -46,10 +46,12 @@ RUN uv pip install --system -e . \
     && uv pip install --system ctranslate2==4.6.0 \
     && echo "Installing PyTorch nightly builds for latest GPU support (including RTX 5090 sm_120)..." \
     && uv pip uninstall --system -y torch torchvision torchaudio || true \
-    && echo "Installing torch first from nightly..." \
+    && echo "Installing torch from nightly for RTX 5090 support..." \
     && uv pip install --system --pre --no-cache-dir torch --index-url https://download.pytorch.org/whl/nightly/cu128 \
-    && echo "Installing matching torchvision and torchaudio from nightly..." \
-    && uv pip install --system --pre --no-cache-dir torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cu128 \
+    && echo "Installing torchaudio from nightly (must match torch version)..." \
+    && uv pip install --system --pre --no-cache-dir torchaudio --index-url https://download.pytorch.org/whl/nightly/cu128 \
+    && echo "Installing torchvision from stable (compatible with nightly torch)..." \
+    && uv pip install --system --no-cache-dir torchvision --index-url https://download.pytorch.org/whl/cu128 \
     && echo "Force upgrading pyannote.audio and numpy for torchaudio compatibility..." \
     && uv pip uninstall --system -y pyannote.audio pyannote.core pyannote.metrics pyannote.pipeline pyannote.database || true \
     && uv pip install --system --upgrade --force-reinstall --no-cache-dir "numpy>=2.3" "pyannote.audio>=4.0.1" \

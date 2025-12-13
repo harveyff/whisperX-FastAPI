@@ -16,6 +16,18 @@ try:
 except ImportError:
     pass
 
+# Fix torchvision compatibility issue with nightly torch
+# Register the missing nms operator before torchvision tries to use it
+try:
+    import torch
+    # Register fake nms operator to avoid registration error
+    if not hasattr(torch.ops, 'torchvision'):
+        @torch.library.register_fake("torchvision::nms")
+        def nms_fake(boxes, scores, iou_threshold):
+            return torch.tensor([], dtype=torch.long)
+except (ImportError, RuntimeError, AttributeError):
+    pass
+
 import logging  # noqa: E402
 import time  # noqa: E402
 from contextlib import asynccontextmanager  # noqa: E402
