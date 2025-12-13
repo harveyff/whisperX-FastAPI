@@ -5,11 +5,46 @@ Patch whisperx to replace use_auth_token with token for pyannote.audio>=4.0.1 co
 import re
 import glob
 import sys
+import os
 
-# Find all whisperx Python files
-whisperx_paths = glob.glob('/usr/local/lib/python3.*/dist-packages/whisperx/**/*.py', recursive=True)
+# Find all whisperx Python files - try multiple patterns
+whisperx_paths = []
+
+# Try glob patterns
+for pattern in [
+    '/usr/local/lib/python3.*/dist-packages/whisperx/**/*.py',
+    '/usr/local/lib/python3.*/site-packages/whisperx/**/*.py',
+]:
+    whisperx_paths.extend(glob.glob(pattern, recursive=True))
+
+# Also try direct path walking
+for base_path in ['/usr/local/lib/python3.11/dist-packages', '/usr/local/lib/python3.10/dist-packages']:
+    whisperx_dir = os.path.join(base_path, 'whisperx')
+    if os.path.exists(whisperx_dir):
+        for root, dirs, files in os.walk(whisperx_dir):
+            for file in files:
+                if file.endswith('.py'):
+                    whisperx_paths.append(os.path.join(root, file))
+
+whisperx_paths = list(set(whisperx_paths))  # Remove duplicates
 
 print(f"Found {len(whisperx_paths)} whisperx Python files to patch", file=sys.stderr)
+if len(whisperx_paths) == 0:
+    print("WARNING: No whisperx files found! Trying to locate...", file=sys.stderr)
+    import subprocess
+    try:
+        result = subprocess.run(['find', '/usr/local/lib', '-name', 'whisperx', '-type', 'd', '2>/dev/null'], 
+                              shell=True, capture_output=True, text=True, timeout=5)
+        if result.stdout:
+            for dir_path in result.stdout.strip().split('\n'):
+                if dir_path:
+                    for root, dirs, files in os.walk(dir_path):
+                        for file in files:
+                            if file.endswith('.py'):
+                                whisperx_paths.append(os.path.join(root, file))
+        print(f"After find, found {len(whisperx_paths)} files", file=sys.stderr)
+    except Exception as e:
+        print(f"Find command failed: {e}", file=sys.stderr)
 
 for filepath in whisperx_paths:
     try:

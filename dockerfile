@@ -56,6 +56,9 @@ RUN uv pip install --system -e . \
     && uv pip install --system --upgrade --force-reinstall --no-cache-dir "numpy>=2.3" "pyannote.audio>=4.0.1" \
     && echo "Patching whisperx to use 'token' instead of 'use_auth_token' for pyannote.audio>=4.0.1..." \
     && python3 /tmp/patch_whisperx.py 2>&1 || echo "Warning: patch script had errors, continuing..." \
+    && echo "Applying additional sed patches as backup..." \
+    && find /usr/local/lib/python3.*/dist-packages/whisperx -name "*.py" -type f -exec sed -i 's/\buse_auth_token\b/token/g' {} \; 2>/dev/null || true \
+    && find /usr/local/lib/python3.*/site-packages/whisperx -name "*.py" -type f -exec sed -i 's/\buse_auth_token\b/token/g' {} \; 2>/dev/null || true \
     && rm -f /tmp/patch_whisperx.py \
     && echo "Fixing huggingface-hub version compatibility..." \
     && uv pip install --system --no-cache-dir "huggingface-hub>=0.34.0,<1.0" \
