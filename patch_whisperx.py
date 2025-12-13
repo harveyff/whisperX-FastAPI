@@ -9,6 +9,8 @@ import sys
 # Find all whisperx Python files
 whisperx_paths = glob.glob('/usr/local/lib/python3.*/dist-packages/whisperx/**/*.py', recursive=True)
 
+print(f"Found {len(whisperx_paths)} whisperx Python files to patch", file=sys.stderr)
+
 for filepath in whisperx_paths:
     try:
         with open(filepath, 'r', encoding='utf-8') as f:
@@ -16,35 +18,26 @@ for filepath in whisperx_paths:
         
         original_content = content
         
-        # Step 1: Replace parameter definitions: use_auth_token= -> token=
-        content = re.sub(r'\buse_auth_token\s*=', 'token=', content)
-        
-        # Step 2: Replace use_auth_token=None with token=None
-        content = re.sub(r'use_auth_token\s*=\s*None', 'token=None', content)
-        
-        # Step 3: Replace variable references in function bodies
-        # But preserve use_auth_token when it's used as a value (e.g., token=use_auth_token should become token=token)
-        # Actually, we need to replace the variable name itself in function bodies
-        # Replace use_auth_token as a variable name with token, but be careful
-        
-        # Replace standalone use_auth_token (not in parameter definitions or assignments)
-        # This is tricky - we want to replace variable references but not break things
-        # Let's replace use_auth_token when it appears as a variable (not in strings/comments)
+        # Replace ALL occurrences of use_auth_token with token
+        # This is safe because we're doing a consistent replacement across the entire codebase
+        # We skip comments and strings by processing line by line
         lines = content.split('\n')
         new_lines = []
+        
         for line in lines:
-            # Skip comments and strings
-            if line.strip().startswith('#') or ('"' in line and 'use_auth_token' in line) or ("'" in line and 'use_auth_token' in line):
+            original_line = line
+            
+            # Skip comment lines
+            if line.strip().startswith('#'):
                 new_lines.append(line)
                 continue
             
-            # Replace use_auth_token as variable name
-            # After replacing use_auth_token= with token=, we need to replace the variable name itself
-            # So token=use_auth_token becomes token=token (variable name also changed)
-            if 'use_auth_token' in line:
-                # Replace all occurrences of use_auth_token as a variable/parameter name
-                # This includes cases like token=use_auth_token which should become token=token
-                line = re.sub(r'\buse_auth_token\b', 'token', line)
+            # Replace use_auth_token with token (all occurrences)
+            # This handles:
+            # - Parameter definitions: use_auth_token= -> token=
+            # - Variable references: use_auth_token -> token
+            # - Function calls: use_auth_token=value -> token=value
+            line = re.sub(r'\buse_auth_token\b', 'token', line)
             
             new_lines.append(line)
         
@@ -53,8 +46,11 @@ for filepath in whisperx_paths:
         if content != original_content:
             with open(filepath, 'w', encoding='utf-8') as f:
                 f.write(content)
-            print(f"Patched: {filepath}")
+            print(f"Patched: {filepath}", file=sys.stderr)
+            # Count replacements
+            replacements = original_content.count('use_auth_token') - content.count('use_auth_token')
+            if replacements > 0:
+                print(f"  Replaced {replacements} occurrences", file=sys.stderr)
     except Exception as e:
         print(f"Error processing {filepath}: {e}", file=sys.stderr)
         pass
-
