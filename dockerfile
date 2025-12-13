@@ -101,8 +101,6 @@ for filepath in whisperx_path:
         print(f"Error processing {filepath}: {e}")
         pass
 EOF
-
-
     && echo "Fixing huggingface-hub version compatibility..." \
     && uv pip install --system --no-cache-dir "huggingface-hub>=0.34.0,<1.0" \
     && rm -rf /root/.cache /tmp/* /root/.uv /var/cache/* \
