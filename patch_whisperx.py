@@ -78,6 +78,34 @@ for filepath in whisperx_paths:
         
         content = '\n'.join(new_lines)
         
+        # Also patch diarize.py for pyannote.audio>=4.0.1 compatibility
+        if 'diarize.py' in filepath:
+            # Fix itertracks API change
+            # Old: diarization.itertracks(yield_label=True) 
+            # New: DiarizeOutput doesn't have itertracks, need to access .annotation first
+            # Or DiarizeOutput might be iterable directly
+            if 'itertracks' in content:
+                # Pattern 1: Fix pd.DataFrame(diarization.itertracks(...))
+                # Extract variable name and fix
+                lines = content.split('\n')
+                new_lines = []
+                for line in lines:
+                    # Check if this line has the problematic pattern
+                    if 'pd.DataFrame' in line and 'itertracks' in line:
+                        # Try to extract variable name and fix
+                        # Pattern: pd.DataFrame(var.itertracks(yield_label=True), columns=...)
+                        match = re.search(r'pd\.DataFrame\((\w+)\.itertracks\(yield_label=True\)', line)
+                        if match:
+                            var_name = match.group(1)
+                            # Replace with version that handles DiarizeOutput
+                            line = re.sub(
+                                rf'pd\.DataFrame\({var_name}\.itertracks\(yield_label=True\)',
+                                rf'pd.DataFrame([(segment, label, label) for segment, track, label in ({var_name}.annotation if hasattr({var_name}, "annotation") else {var_name}).itertracks(yield_label=True)]',
+                                line
+                            )
+                    new_lines.append(line)
+                content = '\n'.join(new_lines)
+        
         if content != original_content:
             with open(filepath, 'w', encoding='utf-8') as f:
                 f.write(content)

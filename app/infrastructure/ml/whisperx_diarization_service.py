@@ -58,8 +58,34 @@ class WhisperXDiarizationService:
                 f"available: {torch.cuda.get_device_properties(0).total_memory / 1024**2:.2f} MB"
             )
 
+        # Validate HF token before attempting to load model
+        if not self.hf_token:
+            error_msg = (
+                "HuggingFace token (HF_TOKEN) is required for diarization. "
+                "Please set HF_TOKEN in your .env file. "
+                "Additionally, you need to request access to the gated model at: "
+                "https://huggingface.co/pyannote/speaker-diarization-community-1"
+            )
+            self.logger.error(error_msg)
+            raise ValueError(error_msg)
+
         # Load model
-        model = DiarizationPipeline(token=self.hf_token, device=device)
+        try:
+            model = DiarizationPipeline(token=self.hf_token, device=device)
+        except Exception as e:
+            error_str = str(e)
+            if "403" in error_str or "gated" in error_str.lower() or "not in the authorized list" in error_str:
+                error_msg = (
+                    f"HuggingFace access denied: {error_str}\n"
+                    "This model requires access approval. Please:\n"
+                    "1. Visit https://huggingface.co/pyannote/speaker-diarization-community-1\n"
+                    "2. Click 'Agree and access repository' to request access\n"
+                    "3. Wait for approval (usually instant or within a few hours)\n"
+                    "4. Ensure your HF_TOKEN in .env file is valid and has access"
+                )
+                self.logger.error(error_msg)
+                raise PermissionError(error_msg) from e
+            raise
 
         # Perform diarization
         result = model(
