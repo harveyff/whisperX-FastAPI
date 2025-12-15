@@ -34,6 +34,7 @@ COPY pyproject.toml .
 COPY uv.lock .
 COPY app app/
 COPY tests tests/
+COPY web_interface web_interface/
 COPY app/gunicorn_logging.conf .
 COPY patch_whisperx.py /tmp/
 COPY patch_diarize.py /tmp/

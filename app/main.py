@@ -161,13 +161,23 @@ project_root_method2 = os.getcwd()
 # Method 3: Look for web_interface in parent directories
 def find_project_root():
     """Find project root by looking for web_interface directory."""
-    current = os.path.dirname(_current_file)  # app/
+    # Start from app directory and go up
+    current = os.path.dirname(_current_file)  # app/app or app/
     max_depth = 5
     for _ in range(max_depth):
+        # Check current directory
+        web_interface_candidate = os.path.join(current, "web_interface")
+        if os.path.exists(web_interface_candidate):
+            logging.info(f"Found web_interface at: {web_interface_candidate}")
+            return current
+        
+        # Check parent directory
         parent = os.path.dirname(current)
         web_interface_candidate = os.path.join(parent, "web_interface")
         if os.path.exists(web_interface_candidate):
+            logging.info(f"Found web_interface at: {web_interface_candidate}")
             return parent
+        
         if parent == current:  # Reached root
             break
         current = parent
