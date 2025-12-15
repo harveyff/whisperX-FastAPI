@@ -48,6 +48,13 @@ COPY patch_diarize.py /tmp/
 # pyannote.audio compatibility: force upgrade to 4.0.1+ which removes AudioMetaData dependency
 RUN uv pip install --system -e . \
     && uv pip install --system ctranslate2==4.6.0 \
+    && echo "Explicitly installing gunicorn..." \
+    && uv pip install --system --no-cache-dir "gunicorn==23.0.0" \
+    && python3 -c "import gunicorn; print(f'gunicorn installed: {gunicorn.__version__}')" \
+    && echo "Explicitly installing gunicorn to ensure it's available..." \
+    && uv pip install --system --no-cache-dir "gunicorn==23.0.0" \
+    && echo "Verifying gunicorn installation..." \
+    && python3 -c "import gunicorn; print(f'gunicorn installed: {gunicorn.__version__}')" \
     && echo "Installing PyTorch nightly builds for latest GPU support (including RTX 5090 sm_120)..." \
     && uv pip uninstall --system -y torch torchvision torchaudio || true \
     && echo "Installing all PyTorch packages from nightly to ensure version compatibility..." \
@@ -72,7 +79,10 @@ RUN uv pip install --system -e . \
     && rm -rf /root/.cache /tmp/* /root/.uv /var/cache/* \
     && find /usr/local -type d -name '__pycache__' -exec rm -rf {} + 2>/dev/null || true \
     && find /usr/local -type f -name '*.pyc' -delete \
-    && find /usr/local -type f -name '*.pyo' -delete
+    && find /usr/local -type f -name '*.pyo' -delete \
+    && echo "Re-installing gunicorn after cleanup to ensure availability..." \
+    && uv pip install --system --no-cache-dir "gunicorn==23.0.0" \
+    && python3 -c "import gunicorn; print(f'gunicorn verified: {gunicorn.__version__}')"
 
 EXPOSE 8000
 
