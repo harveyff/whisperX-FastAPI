@@ -78,23 +78,10 @@ RUN uv pip install --system -e . \
     && rm -f /tmp/patch_whisperx.py \
     && echo "Fixing huggingface-hub version compatibility..." \
     && uv pip install --system --no-cache-dir "huggingface-hub>=0.34.0,<1.0" \
-    && echo "Final verification of critical packages before cleanup..." \
+    && echo "Final verification of critical packages..." \
     && python3 -c "import gunicorn; import uvicorn; import pydantic; import pydantic_settings; print(f'✓ All packages available: gunicorn={gunicorn.__version__}, uvicorn={uvicorn.__version__}, pydantic={pydantic.__version__}, pydantic_settings={pydantic_settings.__version__}')" \
-    && echo "Cleaning up cache files only (DO NOT touch installed packages)..." \
-    && rm -rf /root/.cache /tmp/* /root/.uv /var/cache/* \
-    && echo "Verifying critical packages after cleanup..." \
-    && python3 -c "import gunicorn; import uvicorn; import pydantic; import pydantic_settings; print(f'✓ All packages still available: gunicorn={gunicorn.__version__}, uvicorn={uvicorn.__version__}, pydantic={pydantic.__version__}, pydantic_settings={pydantic_settings.__version__}')" || ( \
-        echo "ERROR: Critical packages missing after cleanup! Reinstalling..." \
-        && pip3 install --no-cache-dir -e . \
-        && pip3 install --no-cache-dir ctranslate2==4.6.0 \
-        && pip3 install --no-cache-dir --force-reinstall "gunicorn==23.0.0" "uvicorn==0.38.0" \
-        && python3 -c "import gunicorn; import uvicorn; import pydantic; import pydantic_settings; print(f'✓ Reinstalled: gunicorn={gunicorn.__version__}, uvicorn={uvicorn.__version__}, pydantic={pydantic.__version__}, pydantic_settings={pydantic_settings.__version__}')" \
-    ) \
-    && echo "Recreating gunicorn wrapper script after cleanup..." \
-    && printf '#!/bin/sh\nexec python3 -m gunicorn "$@"\n' > /usr/local/bin/gunicorn \
-    && chmod +x /usr/local/bin/gunicorn \
-    && echo "Final verification of gunicorn wrapper..." \
-    && test -f /usr/local/bin/gunicorn || (echo "ERROR: gunicorn wrapper script not created!" && exit 1) \
+    && echo "Verifying gunicorn wrapper script..." \
+    && test -f /usr/local/bin/gunicorn || (echo "ERROR: gunicorn wrapper script not found!" && exit 1) \
     && /usr/local/bin/gunicorn --version || (echo "ERROR: gunicorn wrapper failed!" && cat /usr/local/bin/gunicorn && exit 1) \
     && echo "✓ All verifications passed successfully"
 
