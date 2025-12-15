@@ -212,24 +212,34 @@ _web_interface_path = None
 
 
 def setup_web_interface():
-    """Setup web interface static files and paths."""
+    """Setup web interface static files and paths.
+    
+    This function is called during application startup but is designed to fail gracefully.
+    If web_interface directory is not found, the application will still start normally,
+    but the /web route will redirect to /docs.
+    """
     global _html_file_path, _web_interface_path
     try:
         html_file_path, web_interface_path = find_html_file()
         
         if web_interface_path and os.path.exists(web_interface_path):
             try:
-                app.mount("/static", StaticFiles(directory=web_interface_path), name="static")
-                logging.info(f"Static files mounted at /static from {web_interface_path}")
+                # Only mount if not already mounted
+                if not any(route.path == "/static" for route in app.routes if hasattr(route, "path")):
+                    app.mount("/static", StaticFiles(directory=web_interface_path), name="static")
+                    logging.info(f"Static files mounted at /static from {web_interface_path}")
             except Exception as e:
-                logging.error(f"Failed to mount static files: {e}")
+                logging.warning(f"Failed to mount static files (non-critical): {e}")
         else:
-            logging.warning(f"Web interface directory not found at: {web_interface_path}")
+            logging.debug(f"Web interface directory not found, /web route will redirect to /docs")
         
         _html_file_path = html_file_path
         _web_interface_path = web_interface_path
     except Exception as e:
-        logging.error(f"Error setting up web interface: {e}", exc_info=True)
+        # Log but don't fail - web interface is optional
+        logging.debug(f"Web interface setup skipped (non-critical): {e}")
+        _html_file_path = None
+        _web_interface_path = None
 
 
 @app.get("/", include_in_schema=False)
