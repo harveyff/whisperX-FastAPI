@@ -74,21 +74,17 @@ RUN uv pip install --system -e . \
     && rm -f /tmp/patch_whisperx.py \
     && echo "Fixing huggingface-hub version compatibility..." \
     && uv pip install --system --no-cache-dir "huggingface-hub>=0.34.0,<1.0" \
-    && echo "Cleaning up cache files only (preserving installed packages)..." \
+    && echo "Cleaning up cache files only (DO NOT touch installed packages)..." \
     && rm -rf /root/.cache /tmp/* /root/.uv /var/cache/* \
-    && find /usr/local/lib/python3.*/dist-packages -type d -name '__pycache__' -exec rm -rf {} + 2>/dev/null || true \
-    && find /usr/local/lib/python3.*/site-packages -type d -name '__pycache__' -exec rm -rf {} + 2>/dev/null || true \
-    && find /usr/local/lib/python3.*/dist-packages -type f -name '*.pyc' -delete 2>/dev/null || true \
-    && find /usr/local/lib/python3.*/site-packages -type f -name '*.pyc' -delete 2>/dev/null || true \
-    && find /usr/local/lib/python3.*/dist-packages -type f -name '*.pyo' -delete 2>/dev/null || true \
-    && find /usr/local/lib/python3.*/site-packages -type f -name '*.pyo' -delete 2>/dev/null || true \
-    && echo "Re-installing all project dependencies after cleanup to ensure everything is available..." \
-    && pip3 install --no-cache-dir -e . \
-    && pip3 install --no-cache-dir ctranslate2==4.6.0 \
-    && pip3 install --no-cache-dir --force-reinstall "gunicorn==23.0.0" "uvicorn==0.38.0" \
-    && echo "Verifying critical packages after reinstall..." \
-    && python3 -c "import gunicorn; import uvicorn; import pydantic; import pydantic_settings; print(f'✓ gunicorn: {gunicorn.__version__}, uvicorn: {uvicorn.__version__}, pydantic: {pydantic.__version__}, pydantic_settings: {pydantic_settings.__version__}')" \
-    && python3 -m gunicorn --version || echo "Warning: python3 -m gunicorn --version failed" \
+    && echo "Final verification of critical packages..." \
+    && python3 -c "import gunicorn; import uvicorn; import pydantic; import pydantic_settings; print(f'✓ All packages available: gunicorn={gunicorn.__version__}, uvicorn={uvicorn.__version__}, pydantic={pydantic.__version__}, pydantic_settings={pydantic_settings.__version__}')" || ( \
+        echo "ERROR: Critical packages missing! Reinstalling..." \
+        && pip3 install --no-cache-dir -e . \
+        && pip3 install --no-cache-dir ctranslate2==4.6.0 \
+        && pip3 install --no-cache-dir --force-reinstall "gunicorn==23.0.0" "uvicorn==0.38.0" \
+        && python3 -c "import gunicorn; import uvicorn; import pydantic; import pydantic_settings; print(f'✓ Reinstalled: gunicorn={gunicorn.__version__}, uvicorn={uvicorn.__version__}, pydantic={pydantic.__version__}, pydantic_settings={pydantic_settings.__version__}')" \
+    ) \
+    && python3 -m gunicorn --version || (echo "ERROR: gunicorn module not found!" && exit 1) \
     && echo "Creating gunicorn wrapper script..." \
     && echo '#!/bin/sh' > /usr/local/bin/gunicorn \
     && echo 'exec python3 -m gunicorn "$@"' >> /usr/local/bin/gunicorn \
