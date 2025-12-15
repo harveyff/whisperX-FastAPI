@@ -20,6 +20,7 @@ from app.core.warnings_filter import filter_warnings
 filter_warnings()
 
 import logging  # noqa: E402
+import os  # noqa: E402
 import time  # noqa: E402
 from contextlib import asynccontextmanager  # noqa: E402
 
@@ -28,7 +29,6 @@ from fastapi import FastAPI, status  # noqa: E402
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse  # noqa: E402
 from fastapi.staticfiles import StaticFiles  # noqa: E402
 from sqlalchemy import text  # noqa: E402
-import os  # noqa: E402
 
 from app.api import service_router, stt_router, task_router  # noqa: E402
 from app.api.exception_handlers import (  # noqa: E402
@@ -148,20 +148,43 @@ app.include_router(task_router)
 app.include_router(service_router)
 
 # Mount static files for web interface
-web_interface_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "web_interface")
+# Get the project root directory (parent of app directory)
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+web_interface_path = os.path.join(project_root, "web_interface")
+
+logging.info(f"Web interface path: {web_interface_path}")
+logging.info(f"Web interface exists: {os.path.exists(web_interface_path)}")
+
 if os.path.exists(web_interface_path):
     app.mount("/static", StaticFiles(directory=web_interface_path), name="static")
+    logging.info("Static files mounted at /static")
+else:
+    logging.warning(f"Web interface directory not found at: {web_interface_path}")
 
 
 @app.get("/", include_in_schema=False)
 async def index():
     """Serve the web interface HTML page."""
     html_path = os.path.join(web_interface_path, "index.html")
-    if os.path.exists(html_path):
-        return FileResponse(html_path)
-    else:
-        # Fallback to docs if HTML file doesn't exist
-        return RedirectResponse(url="/docs", status_code=307)
+    
+    # Try multiple path resolutions
+    possible_paths = [
+        html_path,
+        os.path.join(project_root, "web_interface", "index.html"),
+        os.path.join(os.getcwd(), "web_interface", "index.html"),
+    ]
+    
+    for path in possible_paths:
+        if os.path.exists(path):
+            logging.info(f"Serving web interface HTML page from: {path}")
+            return FileResponse(path, media_type="text/html")
+    
+    # If none of the paths exist, log and redirect to docs
+    logging.warning(f"HTML file not found. Tried paths: {possible_paths}")
+    logging.warning(f"Current working directory: {os.getcwd()}")
+    logging.warning(f"Project root: {project_root}")
+    logging.warning(f"Web interface path: {web_interface_path}")
+    return RedirectResponse(url="/docs", status_code=307)
 
 
 
