@@ -76,6 +76,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """
     logging.info("Application lifespan started - dependency container initialized")
 
+    # Setup web interface (static files and paths)
+    setup_web_interface()
+
     save_openapi_json(app)
     generate_db_schema(Base.metadata.tables.values())
     yield
@@ -203,9 +206,30 @@ def find_html_file():
         return None, None
 
 
-# Setup static files and HTML path in lifespan
+# Web interface paths (will be initialized in lifespan)
 _html_file_path = None
 _web_interface_path = None
+
+
+def setup_web_interface():
+    """Setup web interface static files and paths."""
+    global _html_file_path, _web_interface_path
+    try:
+        html_file_path, web_interface_path = find_html_file()
+        
+        if web_interface_path and os.path.exists(web_interface_path):
+            try:
+                app.mount("/static", StaticFiles(directory=web_interface_path), name="static")
+                logging.info(f"Static files mounted at /static from {web_interface_path}")
+            except Exception as e:
+                logging.error(f"Failed to mount static files: {e}")
+        else:
+            logging.warning(f"Web interface directory not found at: {web_interface_path}")
+        
+        _html_file_path = html_file_path
+        _web_interface_path = web_interface_path
+    except Exception as e:
+        logging.error(f"Error setting up web interface: {e}", exc_info=True)
 
 
 @app.get("/", include_in_schema=False)
@@ -215,42 +239,14 @@ async def index() -> RedirectResponse:
 
 
 @app.get("/web", include_in_schema=False)
-async def web_interface():
+async def web_interface_page():
     """Serve the web interface HTML page."""
-    global _html_file_path, _web_interface_path
-    
-    # Lazy initialization on first request
-    if _html_file_path is None:
-        _html_file_path, _web_interface_path = find_html_file()
-        
-        # Mount static files if not already mounted
-        if _web_interface_path and os.path.exists(_web_interface_path):
-            try:
-                # Check if already mounted
-                if not any(route.path == "/static" for route in app.routes if hasattr(route, "path")):
-                    app.mount("/static", StaticFiles(directory=_web_interface_path), name="static")
-                    logging.info(f"Static files mounted at /static from {_web_interface_path}")
-            except Exception as e:
-                logging.error(f"Failed to mount static files: {e}")
-    
-    # Try the found path
     if _html_file_path and os.path.exists(_html_file_path):
+        logging.info(f"Serving web interface HTML page from: {_html_file_path}")
         return FileResponse(_html_file_path, media_type="text/html")
-    
-    # Fallback: try alternative paths
-    _project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    alt_paths = [
-        os.path.normpath(os.path.join(_project_root, "web_interface", "index.html")),
-        os.path.normpath(os.path.join(os.getcwd(), "web_interface", "index.html")),
-    ]
-    
-    for alt_path in alt_paths:
-        if os.path.exists(alt_path):
-            return FileResponse(alt_path, media_type="text/html")
-    
-    # If none of the paths exist, redirect to docs
-    logging.warning("HTML file not found, redirecting to /docs")
-    return RedirectResponse(url="/docs", status_code=307)
+    else:
+        logging.error("HTML file not found for /web route. Falling back to /docs.")
+        return RedirectResponse(url="/docs", status_code=307)
 
 
 
