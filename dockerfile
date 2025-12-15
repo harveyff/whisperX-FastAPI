@@ -48,9 +48,9 @@ COPY patch_diarize.py /tmp/
 # pyannote.audio compatibility: force upgrade to 4.0.1+ which removes AudioMetaData dependency
 RUN uv pip install --system -e . \
     && uv pip install --system ctranslate2==4.6.0 \
-    && echo "Explicitly installing gunicorn..." \
-    && uv pip install --system --no-cache-dir "gunicorn==23.0.0" \
-    && python3 -c "import gunicorn; print(f'gunicorn installed: {gunicorn.__version__}')" \
+    && echo "Explicitly installing gunicorn and uvicorn..." \
+    && uv pip install --system --no-cache-dir "gunicorn==23.0.0" "uvicorn==0.38.0" \
+    && python3 -c "import gunicorn; import uvicorn; print(f'gunicorn: {gunicorn.__version__}, uvicorn: {uvicorn.__version__}')" \
     && echo "Explicitly installing gunicorn to ensure it's available..." \
     && uv pip install --system --no-cache-dir "gunicorn==23.0.0" \
     && echo "Verifying gunicorn installation..." \
@@ -80,9 +80,9 @@ RUN uv pip install --system -e . \
     && find /usr/local -type d -name '__pycache__' -exec rm -rf {} + 2>/dev/null || true \
     && find /usr/local -type f -name '*.pyc' -delete \
     && find /usr/local -type f -name '*.pyo' -delete \
-    && echo "Re-installing gunicorn after cleanup to ensure availability..." \
-    && uv pip install --system --no-cache-dir "gunicorn==23.0.0" \
-    && python3 -c "import gunicorn; print(f'gunicorn verified: {gunicorn.__version__}')"
+    && echo "Re-installing gunicorn and uvicorn after cleanup to ensure availability..." \
+    && uv pip install --system --no-cache-dir "gunicorn==23.0.0" "uvicorn==0.38.0" \
+    && python3 -c "import gunicorn; import uvicorn; print(f'gunicorn: {gunicorn.__version__}, uvicorn: {uvicorn.__version__}')"
 
 EXPOSE 8000
 
