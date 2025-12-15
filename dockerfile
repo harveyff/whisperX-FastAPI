@@ -84,13 +84,16 @@ RUN uv pip install --system -e . \
         && pip3 install --no-cache-dir --force-reinstall "gunicorn==23.0.0" "uvicorn==0.38.0" \
         && python3 -c "import gunicorn; import uvicorn; import pydantic; import pydantic_settings; print(f'✓ Reinstalled: gunicorn={gunicorn.__version__}, uvicorn={uvicorn.__version__}, pydantic={pydantic.__version__}, pydantic_settings={pydantic_settings.__version__}')" \
     ) \
-    && python3 -m gunicorn --version || (echo "ERROR: gunicorn module not found!" && exit 1) \
+    && echo "Testing python3 -m gunicorn..." \
+    && python3 -m gunicorn --version 2>&1 || (echo "ERROR: python3 -m gunicorn failed! Checking Python path..." && python3 -c "import sys; print('Python paths:', sys.path)" && exit 1) \
     && echo "Creating gunicorn wrapper script in /usr/local/bin..." \
     && printf '#!/bin/sh\nexec python3 -m gunicorn "$@"\n' > /usr/local/bin/gunicorn \
     && chmod +x /usr/local/bin/gunicorn \
     && echo "Verifying gunicorn wrapper script..." \
+    && test -f /usr/local/bin/gunicorn || (echo "ERROR: gunicorn wrapper script not created!" && exit 1) \
     && ls -la /usr/local/bin/gunicorn \
-    && /usr/local/bin/gunicorn --version || (echo "ERROR: gunicorn wrapper failed!" && exit 1) \
+    && echo "Testing gunicorn wrapper script..." \
+    && /usr/local/bin/gunicorn --version 2>&1 || (echo "ERROR: gunicorn wrapper failed!" && cat /usr/local/bin/gunicorn && exit 1) \
     && echo "✓ Gunicorn wrapper script created and verified successfully"
 
 EXPOSE 8000
