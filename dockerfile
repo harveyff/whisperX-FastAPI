@@ -82,12 +82,13 @@ RUN uv pip install --system -e . \
     && find /usr/local/lib/python3.*/site-packages -type f -name '*.pyc' -delete 2>/dev/null || true \
     && find /usr/local/lib/python3.*/dist-packages -type f -name '*.pyo' -delete 2>/dev/null || true \
     && find /usr/local/lib/python3.*/site-packages -type f -name '*.pyo' -delete 2>/dev/null || true \
-    && echo "Re-verifying gunicorn and uvicorn after cleanup..." \
-    && python3 -c "import gunicorn; import uvicorn; print(f'gunicorn: {gunicorn.__version__}, uvicorn: {uvicorn.__version__}')" || echo "Warning: gunicorn/uvicorn not found after cleanup, reinstalling..." \
+    && echo "Re-installing project dependencies after cleanup to ensure all packages are available..." \
+    && pip3 install --no-cache-dir -e . \
+    && pip3 install --no-cache-dir ctranslate2==4.6.0 \
     && echo "Re-installing gunicorn and uvicorn using system pip3 after cleanup..." \
     && pip3 install --no-cache-dir --force-reinstall "gunicorn==23.0.0" "uvicorn==0.38.0" \
-    && echo "Final verification of gunicorn and uvicorn..." \
-    && python3 -c "import gunicorn; import uvicorn; print(f'gunicorn: {gunicorn.__version__}, uvicorn: {uvicorn.__version__}')" \
+    && echo "Final verification of key packages..." \
+    && python3 -c "import gunicorn; import uvicorn; import pydantic; print(f'gunicorn: {gunicorn.__version__}, uvicorn: {uvicorn.__version__}, pydantic: {pydantic.__version__}')" \
     && python3 -m gunicorn --version || echo "Warning: python3 -m gunicorn --version failed" \
     && echo "Creating gunicorn wrapper script..." \
     && echo '#!/bin/sh' > /usr/local/bin/gunicorn \
