@@ -52,9 +52,11 @@ RUN uv pip install --system -e . \
     && uv pip install --system --no-cache-dir "gunicorn==23.0.0" "uvicorn==0.38.0" \
     && echo "Verifying gunicorn and uvicorn installation..." \
     && python3 -c "import gunicorn; import uvicorn; print(f'gunicorn: {gunicorn.__version__}, uvicorn: {uvicorn.__version__}')" \
-    && echo "Checking gunicorn executable location..." \
-    && python3 -c "import gunicorn; import os; print('gunicorn module path:', gunicorn.__file__)" \
-    && python3 -m gunicorn.app.wsgiapp --version || echo "Warning: python3 -m gunicorn.app.wsgiapp failed" \
+    && echo "Creating gunicorn wrapper script to ensure it's available in PATH..." \
+    && echo '#!/bin/sh\nexec python3 -m gunicorn "$@"' > /usr/local/bin/gunicorn \
+    && chmod +x /usr/local/bin/gunicorn \
+    && echo "Verifying gunicorn wrapper..." \
+    && /usr/local/bin/gunicorn --version || python3 -m gunicorn --version || echo "Warning: gunicorn verification failed" \
     && echo "Installing PyTorch nightly builds for latest GPU support (including RTX 5090 sm_120)..." \
     && uv pip uninstall --system -y torch torchvision torchaudio || true \
     && echo "Installing all PyTorch packages from nightly to ensure version compatibility..." \
@@ -87,4 +89,4 @@ RUN uv pip install --system -e . \
 
 EXPOSE 8000
 
-ENTRYPOINT ["python3", "-m", "gunicorn", "--bind", "0.0.0.0:8000", "--workers", "1", "--timeout", "0", "--log-config", "gunicorn_logging.conf", "--log-level", "info", "app.main:app", "-k", "uvicorn.workers.UvicornWorker"]
+ENTRYPOINT ["gunicorn", "--bind", "0.0.0.0:8000", "--workers", "1", "--timeout", "0", "--log-config", "gunicorn_logging.conf", "--log-level", "info", "app.main:app", "-k", "uvicorn.workers.UvicornWorker"]
