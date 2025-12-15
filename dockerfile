@@ -82,12 +82,12 @@ RUN uv pip install --system -e . \
     && find /usr/local/lib/python3.*/site-packages -type f -name '*.pyc' -delete 2>/dev/null || true \
     && find /usr/local/lib/python3.*/dist-packages -type f -name '*.pyo' -delete 2>/dev/null || true \
     && find /usr/local/lib/python3.*/site-packages -type f -name '*.pyo' -delete 2>/dev/null || true \
-    && echo "Verifying critical packages after cleanup..." \
-    && python3 -c "import gunicorn; import uvicorn; import pydantic; print(f'✓ gunicorn: {gunicorn.__version__}, uvicorn: {uvicorn.__version__}, pydantic: {pydantic.__version__}')" || ( \
-        echo "Warning: Some packages missing after cleanup, reinstalling..." \
-        && pip3 install --no-cache-dir --force-reinstall "gunicorn==23.0.0" "uvicorn==0.38.0" "pydantic>=2.0.0" \
-        && python3 -c "import gunicorn; import uvicorn; import pydantic; print(f'✓ Reinstalled: gunicorn: {gunicorn.__version__}, uvicorn: {uvicorn.__version__}, pydantic: {pydantic.__version__}')" \
-    ) \
+    && echo "Re-installing all project dependencies after cleanup to ensure everything is available..." \
+    && pip3 install --no-cache-dir -e . \
+    && pip3 install --no-cache-dir ctranslate2==4.6.0 \
+    && pip3 install --no-cache-dir --force-reinstall "gunicorn==23.0.0" "uvicorn==0.38.0" \
+    && echo "Verifying critical packages after reinstall..." \
+    && python3 -c "import gunicorn; import uvicorn; import pydantic; import pydantic_settings; print(f'✓ gunicorn: {gunicorn.__version__}, uvicorn: {uvicorn.__version__}, pydantic: {pydantic.__version__}, pydantic_settings: {pydantic_settings.__version__}')" \
     && python3 -m gunicorn --version || echo "Warning: python3 -m gunicorn --version failed" \
     && echo "Creating gunicorn wrapper script..." \
     && echo '#!/bin/sh' > /usr/local/bin/gunicorn \
