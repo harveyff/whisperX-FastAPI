@@ -81,8 +81,14 @@ RUN uv pip install --system -e . \
     && find /usr/local/lib/python3.*/dist-packages -type f -name '*.pyc' -delete 2>/dev/null || true \
     && find /usr/local/lib/python3.*/site-packages -type f -name '*.pyc' -delete 2>/dev/null || true \
     && find /usr/local/lib/python3.*/dist-packages -type f -name '*.pyo' -delete 2>/dev/null || true \
-    && find /usr/local/lib/python3.*/site-packages -type f -name '*.pyo' -delete 2>/dev/null || true
+    && find /usr/local/lib/python3.*/site-packages -type f -name '*.pyo' -delete 2>/dev/null || true \
+    && echo "Creating gunicorn wrapper script after cleanup to ensure availability..." \
+    && echo '#!/bin/sh' > /usr/local/bin/gunicorn \
+    && echo 'exec python3 -m gunicorn "$@"' >> /usr/local/bin/gunicorn \
+    && chmod +x /usr/local/bin/gunicorn \
+    && echo "Verifying gunicorn wrapper after cleanup..." \
+    && /usr/local/bin/gunicorn --version || python3 -m gunicorn --version || echo "Warning: gunicorn wrapper verification failed"
 
 EXPOSE 8000
 
-ENTRYPOINT ["python3", "-m", "gunicorn", "--bind", "0.0.0.0:8000", "--workers", "1", "--timeout", "0", "--log-config", "gunicorn_logging.conf", "--log-level", "info", "app.main:app", "-k", "uvicorn.workers.UvicornWorker"]
+ENTRYPOINT ["/usr/local/bin/gunicorn", "--bind", "0.0.0.0:8000", "--workers", "1", "--timeout", "0", "--log-config", "gunicorn_logging.conf", "--log-level", "info", "app.main:app", "-k", "uvicorn.workers.UvicornWorker"]
