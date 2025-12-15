@@ -2,6 +2,7 @@ FROM nvidia/cuda:13.0.1-base-ubuntu22.04
 
 ENV PYTHON_VERSION=3.11
 ENV LD_LIBRARY_PATH=/usr/local/cuda/lib64:/usr/lib/x86_64-linux-gnu:$LD_LIBRARY_PATH
+ENV PATH=/usr/local/bin:/usr/bin:/bin:$PATH
 
 # Install dependencies and clean up in the same layer
 # hadolint ignore=DL3008
@@ -75,4 +76,4 @@ RUN uv pip install --system -e . \
 
 EXPOSE 8000
 
-ENTRYPOINT ["gunicorn", "--bind", "0.0.0.0:8000", "--workers", "1", "--timeout", "0", "--log-config", "gunicorn_logging.conf", "--log-level", "info", "app.main:app", "-k", "uvicorn.workers.UvicornWorker"]
+ENTRYPOINT ["python3", "-m", "gunicorn.app.wsgiapp", "--bind", "0.0.0.0:8000", "--workers", "1", "--timeout", "0", "--log-config", "gunicorn_logging.conf", "--log-level", "info", "app.main:app", "-k", "uvicorn.workers.UvicornWorker"]
