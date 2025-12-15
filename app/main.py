@@ -25,8 +25,10 @@ from contextlib import asynccontextmanager  # noqa: E402
 
 from dotenv import load_dotenv  # noqa: E402
 from fastapi import FastAPI, status  # noqa: E402
-from fastapi.responses import JSONResponse, RedirectResponse  # noqa: E402
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse  # noqa: E402
+from fastapi.staticfiles import StaticFiles  # noqa: E402
 from sqlalchemy import text  # noqa: E402
+import os  # noqa: E402
 
 from app.api import service_router, stt_router, task_router  # noqa: E402
 from app.api.exception_handlers import (  # noqa: E402
@@ -145,11 +147,23 @@ app.include_router(stt_router)
 app.include_router(task_router)
 app.include_router(service_router)
 
+# Mount static files for web interface
+web_interface_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "web_interface")
+if os.path.exists(web_interface_path):
+    app.mount("/static", StaticFiles(directory=web_interface_path), name="static")
+
 
 @app.get("/", include_in_schema=False)
-async def index() -> RedirectResponse:
-    """Redirect to the documentation."""
-    return RedirectResponse(url="/docs", status_code=307)
+async def index():
+    """Serve the web interface HTML page."""
+    html_path = os.path.join(web_interface_path, "index.html")
+    if os.path.exists(html_path):
+        return FileResponse(html_path)
+    else:
+        # Fallback to docs if HTML file doesn't exist
+        return RedirectResponse(url="/docs", status_code=307)
+
+
 
 
 # Health check endpoints

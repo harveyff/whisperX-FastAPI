@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title data-i18n="title">WhisperX 语音转文字工具</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <!-- OpenCC 中文简繁转换库 -->
+    <script src="https://cdn.jsdelivr.net/npm/opencc-js@1.0.3/dist/umd/opencc.min.js"></script>
+    <!-- 多语言支持 -->
+    <script src="/static/i18n.js"></script>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="header-content">
+                <div>
+                    <h1 data-i18n="title">🎙️ WhisperX 语音转文字工具</h1>
+                    <p class="subtitle" data-i18n="subtitle">上传视频/音频文件，自动生成字幕并播放</p>
+                </div>
+                <div class="language-selector-container">
+                    <label for="languageSelector">🌐</label>
+                    <select id="languageSelector" class="language-selector">
+                        <option value="zh-CN">简体中文</option>
+                        <option value="en">English</option>
+                        <option value="ja">日本語</option>
+                    </select>
+                </div>
+            </div>
+        </header>
+
+        <main>
+            <!-- Tab 导航 -->
+            <div class="tabs">
+                <button class="tab-btn active" data-tab="one-step" data-i18n="tabOneStep">一步生成字幕</button>
+                <button class="tab-btn" data-tab="step-by-step" data-i18n="tabStepByStep">分步调用接口</button>
+            </div>
+
+            <!-- Tab 1: 一步生成 -->
+            <div class="tab-content active" id="one-step-tab">
+                <div class="section">
+                    <h2 data-i18n="oneStepTitle">完整工作流 - 一步生成字幕</h2>
+                    <p class="section-desc" data-i18n="oneStepDesc">上传文件后自动完成：转录 → 对齐 → 说话人分离 → 生成字幕文件</p>
+                </div>
+
+                <!-- 文件上传 -->
+                <div class="section">
+                    <h3 data-i18n="fileUpload">文件上传</h3>
+                    <div class="upload-area" id="uploadArea">
+                        <input type="file" id="fileInput" accept="audio/*,video/*" style="display: none;">
+                        <div class="upload-content">
+                            <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                                <polyline points="17 8 12 3 7 8"></polyline>
+                                <line x1="12" y1="3" x2="12" y2="15"></line>
+                            </svg>
+                            <p data-i18n="uploadHint">点击或拖拽文件到此处上传</p>
+                            <p class="file-hint" data-i18n="fileHint">支持音频和视频文件 (MP3, WAV, MP4, AVI等)</p>
+                        </div>
+                    </div>
+                    <div class="url-upload-option">
+                        <div class="upload-type-selector">
+                            <label class="upload-type-label">
+                                <input type="radio" name="uploadType" value="file" checked>
+                                <span data-i18n="uploadFile">上传文件</span>
+                            </label>
+                            <label class="upload-type-label">
+                                <input type="radio" name="uploadType" value="url">
+                                <span data-i18n="useUrl">使用URL地址</span>
+                            </label>
+                            <label class="upload-type-label">
+                                <input type="radio" name="uploadType" value="youtube">
+                                <span data-i18n="useYouTube">使用YouTube URL</span>
+                            </label>
+                        </div>
+                        <input type="url" id="urlInput" data-i18n-placeholder="urlPlaceholder" placeholder="https://example.com/audio.mp3" style="display: none; width: 100%; margin-top: 10px; padding: 10px; border: 1px solid #ddd; border-radius: 5px;">
+                        <input type="url" id="youtubeInput" data-i18n-placeholder="youtubePlaceholder" placeholder="https://www.youtube.com/watch?v=..." style="display: none; width: 100%; margin-top: 10px; padding: 10px; border: 1px solid #ddd; border-radius: 5px;">
+                    </div>
+                </div>
+
+                <!-- 参数配置 -->
+                <div class="section">
+                    <h3 data-i18n="configTitle">处理配置</h3>
+                    
+                    <!-- 主要参数 -->
+                    <div class="param-group">
+                        <h4 class="param-group-title" data-i18n="mainParams">主要参数</h4>
+                        <div class="config-grid">
+                            <div class="config-item">
+                                <label for="os-language" data-i18n="language">语言</label>
+                                <select id="os-language">
+                                    <option value="zh">中文</option>
+                                    <option value="en">English</option>
+                                    <option value="ja">日本語</option>
+                                    <option value="ko">한국어</option>
+                                    <option value="es">Español</option>
+                                    <option value="fr">Français</option>
+                                    <option value="de">Deutsch</option>
+                                </select>
+                            </div>
+                            <div class="config-item">
+                                <label for="os-model" data-i18n="model">模型</label>
+                                <select id="os-model">
+                                    <option value="tiny">Tiny (最快, 75MB)</option>
+                                    <option value="base" selected>Base (推荐, 142MB)</option>
+                                    <option value="small">Small (较好, 466MB)</option>
+                                    <option value="medium">Medium (好, 1.4GB)</option>
+                                    <option value="large-v2">Large-v2 (很好, 2.9GB)</option>
+                                    <option value="large-v3">Large-v3 (最好, 3.1GB)</option>
+                                    <option value="large-v3-turbo">Large-v3-turbo (优化版, 3.1GB)</option>
+                                </select>
+                            </div>
+                            <div class="config-item">
+                                <label for="os-device" data-i18n="device">设备</label>
+                                <select id="os-device">
+                                    <option value="cuda" data-i18n="deviceGpu">GPU (CUDA)</option>
+                                    <option value="cpu" data-i18n="deviceCpu">CPU</option>
+                                </select>
+                            </div>
+                            <div class="config-item">
+                                <label>
+                                    <input type="checkbox" id="os-enableDiarization" checked>
+                                    <span data-i18n="enableDiarization">启用说话人分离</span>
+                                </label>
+                            </div>
+                            <div class="config-item">
+                                <label for="os-chineseConversion" data-i18n="chineseConversion">中文转换</label>
+                                <select id="os-chineseConversion">
+                                    <option value="none" data-i18n="conversionNone">不转换</option>
+                                    <option value="t2s" selected data-i18n="conversionT2S">繁体转简体</option>
+                                    <option value="s2t" data-i18n="conversionS2T">简体转繁体</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 折叠参数组 -->
+                    <div class="param-group collapsible">
+                        <h4 class="param-group-title collapsible-header">
+                            <span data-i18n="whisperParams">Whisper模型参数</span>
+                            <span class="toggle-icon">▼</span>
+                        </h4>
+                        <div class="collapsible-content" style="display: none;">
+                            <div class="config-grid">
+                                <div class="config-item">
+                                    <label for="os-task" data-i18n="taskType">任务类型</label>
+                                    <select id="os-task">
+                                        <option value="transcribe" selected data-i18n="taskTranscribe">转录 (transcribe)</option>
+                                        <option value="translate" data-i18n="taskTranslate">翻译 (translate)</option>
+                                    </select>
+                                </div>
+                                <div class="config-item">
+                                    <label for="os-device_index" data-i18n="deviceIndex">设备索引</label>
+                                    <input type="number" id="os-device_index" value="0" min="0">
+                                </div>
+                                <div class="config-item">
+                                    <label for="os-threads" data-i18n="cpuThreads">CPU线程数</label>
+                                    <input type="number" id="os-threads" value="0" min="0">
+                                </div>
+                                <div class="config-item">
+                                    <label for="os-batch_size" data-i18n="batchSize">批次大小</label>
+                                    <input type="number" id="os-batch_size" value="8" min="1">
+                                </div>
+                                <div class="config-item">
+                                    <label for="os-chunk_size" data-i18n="chunkSize">块大小</label>
+                                    <input type="number" id="os-chunk_size" value="20" min="1">
+                                </div>
+                                <div class="config-item">
+                                    <label for="os-compute_type" data-i18n="computeType">计算类型</label>
+                                    <select id="os-compute_type">
+                                        <option value="float16" selected>float16</option>
+                                        <option value="float32">float32</option>
+                                        <option value="int8">int8</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="param-group collapsible">
+                        <h4 class="param-group-title collapsible-header">
+                            <span data-i18n="alignParams">对齐参数</span>
+                            <span class="toggle-icon">▼</span>
+                        </h4>
+                        <div class="collapsible-content" style="display: none;">
+                            <div class="config-grid">
+                                <div class="config-item">
+                                    <label for="os-align_model" data-i18n="alignModel">对齐模型</label>
+                                    <input type="text" id="os-align_model" data-i18n-placeholder="alignModelPlaceholder" placeholder="留空使用默认">
+                                </div>
+                                <div class="config-item">
+                                    <label for="os-interpolate_method" data-i18n="interpolateMethod">插值方法</label>
+                                    <select id="os-interpolate_method">
+                                        <option value="nearest" selected>nearest</option>
+                                        <option value="linear">linear</option>
+                                        <option value="ignore">ignore</option>
+                                    </select>
+                                </div>
+                                <div class="config-item">
+                                    <label>
+                                        <input type="checkbox" id="os-return_char_alignments">
+                                        <span data-i18n="returnCharAlignments">返回字符级对齐</span>
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="param-group collapsible">
+                        <h4 class="param-group-title collapsible-header">
+                            <span data-i18n="diarizationParams">说话人分离参数</span>
+                            <span class="toggle-icon">▼</span>
+                        </h4>
+                        <div class="collapsible-content" style="display: none;">
+                            <div class="config-grid">
+                                <div class="config-item">
+                                    <label for="os-min_speakers" data-i18n="minSpeakers">最小说话人数</label>
+                                    <input type="number" id="os-min_speakers" data-i18n-placeholder="autoDetectPlaceholder" placeholder="留空自动检测" min="1">
+                                </div>
+                                <div class="config-item">
+                                    <label for="os-max_speakers" data-i18n="maxSpeakers">最大说话人数</label>
+                                    <input type="number" id="os-max_speakers" data-i18n-placeholder="autoDetectPlaceholder" placeholder="留空自动检测" min="1">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="param-group collapsible">
+                        <h4 class="param-group-title collapsible-header">
+                            <span data-i18n="asrParams">ASR选项</span>
+                            <span class="toggle-icon">▼</span>
+                        </h4>
+                        <div class="collapsible-content" style="display: none;">
+                            <div class="config-grid">
+                                <div class="config-item">
+                                    <label for="os-beam_size" data-i18n="beamSize">束搜索大小</label>
+                                    <input type="number" id="os-beam_size" value="5" min="1">
+                                </div>
+                                <div class="config-item">
+                                    <label for="os-best_of" data-i18n="bestOf">保留束数量</label>
+                                    <input type="number" id="os-best_of" value="5" min="1">
+                                </div>
+                                <div class="config-item">
+                                    <label for="os-patience" data-i18n="patience">耐心值</label>
+                                    <input type="number" id="os-patience" value="1.0" step="0.1">
+                                </div>
+                                <div class="config-item">
+                                    <label for="os-length_penalty" data-i18n="lengthPenalty">长度惩罚</label>
+                                    <input type="number" id="os-length_penalty" value="1.0" step="0.1">
+                                </div>
+                                <div class="config-item">
+                                    <label for="os-temperatures" data-i18n="temperatures">采样温度</label>
+                                    <input type="number" id="os-temperatures" value="0.0" step="0.1" min="0">
+                                </div>
+                                <div class="config-item">
+                                    <label for="os-compression_ratio_threshold" data-i18n="compressionRatioThreshold">压缩比阈值</label>
+                                    <input type="number" id="os-compression_ratio_threshold" value="2.4" step="0.1">
+                                </div>
+                                <div class="config-item">
+                                    <label for="os-log_prob_threshold" data-i18n="logProbThreshold">对数概率阈值</label>
+                                    <input type="number" id="os-log_prob_threshold" value="-1.0" step="0.1">
+                                </div>
+                                <div class="config-item">
+                                    <label for="os-no_speech_threshold" data-i18n="noSpeechThreshold">无语音阈值</label>
+                                    <input type="number" id="os-no_speech_threshold" value="0.6" step="0.1" min="0" max="1">
+                                </div>
+                                <div class="config-item">
+                                    <label for="os-initial_prompt" data-i18n="initialPrompt">初始提示</label>
+                                    <input type="text" id="os-initial_prompt" data-i18n-placeholder="initialPromptPlaceholder" placeholder="可选，用于提示模型">
+                                </div>
+                                <div class="config-item">
+                                    <label for="os-suppress_tokens" data-i18n="suppressTokens">抑制标记</label>
+                                    <input type="text" id="os-suppress_tokens" value="-1" data-i18n-placeholder="suppressTokensPlaceholder" placeholder="逗号分隔，如: -1,2,3">
+                                </div>
+                                <div class="config-item">
+                                    <label>
+                                        <input type="checkbox" id="os-suppress_numerals">
+                                        <span data-i18n="suppressNumerals">抑制数字符号</span>
+                                    </label>
+                                </div>
+                                <div class="config-item">
+                                    <label for="os-hotwords" data-i18n="hotwords">热词提示</label>
+                                    <input type="text" id="os-hotwords" data-i18n-placeholder="hotwordsPlaceholder" placeholder="可选，用于提示特定词汇">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="param-group collapsible">
+                        <h4 class="param-group-title collapsible-header">
+                            <span data-i18n="vadParams">VAD选项</span>
+                            <span class="toggle-icon">▼</span>
+                        </h4>
+                        <div class="collapsible-content" style="display: none;">
+                            <div class="config-grid">
+                                <div class="config-item">
+                                    <label for="os-vad_onset" data-i18n="vadOnset">VAD起始阈值</label>
+                                    <input type="number" id="os-vad_onset" value="0.500" step="0.001" min="0" max="1">
+                                </div>
+                                <div class="config-item">
+                                    <label for="os-vad_offset" data-i18n="vadOffset">VAD偏移阈值</label>
+                                    <input type="number" id="os-vad_offset" value="0.363" step="0.001" min="0" max="1">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <button class="btn btn-primary" id="os-startProcessBtn" data-i18n="startProcess">开始处理</button>
+                </div>
+
+                <!-- 进度和结果 -->
+                <div class="section" id="os-progressSection" style="display: none;">
+                    <h3 data-i18n="progressTitle">处理进度</h3>
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="os-progressFill"></div>
+                    </div>
+                    <p class="progress-text" id="os-progressText" data-i18n="uploading">正在上传文件...</p>
+                    <div class="task-info" id="os-taskInfo"></div>
+                </div>
+
+                <div class="section" id="os-resultSection" style="display: none;">
+                    <h3 data-i18n="resultTitle">处理结果</h3>
+                    <div class="video-player-container">
+                        <video id="os-videoPlayer" controls>
+                            <source id="os-videoSource" src="" type="video/mp4">
+                            <span data-i18n="videoNotSupported">您的浏览器不支持视频播放</span>
+                        </video>
+                        <track id="os-subtitleTrack" kind="subtitles" srclang="zh" data-i18n-label="subtitle" label="字幕" default>
+                    </div>
+                    <div class="subtitle-controls">
+                        <button class="btn btn-secondary" id="os-downloadSrtBtn" data-i18n="downloadSrt">下载 SRT 字幕</button>
+                        <button class="btn btn-secondary" id="os-downloadVttBtn" data-i18n="downloadVtt">下载 VTT 字幕</button>
+                        <button class="btn btn-secondary" id="os-downloadJsonBtn" data-i18n="downloadJson">下载 JSON 结果</button>
+                    </div>
+                    <div class="transcript-container">
+                        <h4 data-i18n="transcriptTitle">转录文本</h4>
+                        <div class="transcript-content" id="os-transcriptContent"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tab 2: 分步调用 -->
+            <div class="tab-content" id="step-by-step-tab" style="display: none;">
+                <div class="section">
+                    <h2 data-i18n="stepByStepTitle">分步调用接口</h2>
+                    <p class="section-desc" data-i18n="stepByStepDesc">按工作流程分步调用各个接口，可以手动编辑中间结果</p>
+                </div>
+
+                <!-- 接口选择 -->
+                <div class="section">
+                    <h3 data-i18n="selectInterface">选择接口</h3>
+                    <div class="interface-selector">
+                        <button class="interface-btn" data-interface="transcribe" data-i18n="interfaceTranscribe">接口6: 转录</button>
+                        <button class="interface-btn" data-interface="align" data-i18n="interfaceAlign">接口7: 对齐</button>
+                        <button class="interface-btn" data-interface="diarize" data-i18n="interfaceDiarize">接口8: 说话人分离</button>
+                        <button class="interface-btn" data-interface="combine" data-i18n="interfaceCombine">接口9: 合并</button>
+                        <button class="interface-btn" data-interface="full" data-i18n="interfaceFull">接口4: 完整流程</button>
+                        <button class="interface-btn" data-interface="url" data-i18n="interfaceUrl">接口5: URL处理</button>
+                    </div>
+                </div>
+
+                <!-- 接口内容区域 -->
+                <div id="interface-content"></div>
+            </div>
+        </main>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>

@@ -14,6 +14,7 @@ from fastapi import (
     BackgroundTasks,
     Depends,
     File,
+    Form,
     Query,
     UploadFile,
 )
@@ -411,4 +412,105 @@ async def combine(
     )
 
     logger.info(TASK_SCHEDULED_LOG_FORMAT, identifier)
+    return Response(identifier=identifier, message=TASK_QUEUED_MESSAGE)
+
+
+@service_router.post(
+    "/service/youtube-transcribe",
+    tags=["Speech-2-Text services"],
+    name="YouTube Transcribe",
+)
+async def youtube_transcribe(
+    background_tasks: BackgroundTasks,
+    youtube_url: str = Form(..., description="YouTube video URL"),
+    model_params: WhisperModelParams = Depends(),
+    align_params: AlignmentParams = Depends(),
+    diarize_params: DiarizationParams = Depends(),
+    asr_options_params: ASROptions = Depends(),
+    vad_options_params: VADOptions = Depends(),
+    repository: ITaskRepository = Depends(get_task_repository),
+    file_service: FileService = Depends(get_file_service),
+    transcription_service: ITranscriptionService = Depends(get_transcription_service),
+    alignment_service: IAlignmentService = Depends(get_alignment_service),
+    diarization_service: IDiarizationService = Depends(get_diarization_service),
+    speaker_assignment_service: ISpeakerAssignmentService = Depends(get_speaker_assignment_service),
+) -> Response:
+    """
+    Transcribe a YouTube video URL.
+
+    Args:
+        background_tasks (BackgroundTasks): Background tasks dependency.
+        youtube_url (str): YouTube video URL.
+        model_params (WhisperModelParams): Whisper model parameters.
+        align_params (AlignmentParams): Alignment parameters.
+        diarize_params (DiarizationParams): Diarization parameters.
+        asr_options_params (ASROptions): ASR options parameters.
+        vad_options_params (VADOptions): VAD options parameters.
+        repository (ITaskRepository): Task repository dependency.
+        file_service (FileService): File service dependency.
+        transcription_service (ITranscriptionService): Transcription service dependency.
+        alignment_service (IAlignmentService): Alignment service dependency.
+        diarization_service (IDiarizationService): Diarization service dependency.
+        speaker_assignment_service (ISpeakerAssignmentService): Speaker assignment service dependency.
+
+    Returns:
+        Response: Confirmation message of task queuing.
+    """
+    logger.info("Received YouTube transcription request for URL: %s", youtube_url)
+
+    # Download audio from YouTube
+    try:
+        temp_audio_file, video_title = file_service.download_from_youtube(youtube_url)
+        logger.info("YouTube audio downloaded: %s", temp_audio_file)
+    except Exception as e:
+        logger.error("Failed to download YouTube video: %s", str(e))
+        raise ValidationError(f"Failed to download YouTube video: {str(e)}")
+
+    # Process audio
+    audio = process_audio_file(temp_audio_file)
+    logger.info("Audio file processed: duration %s seconds", get_audio_duration(audio))
+
+    # Create domain task
+    task = DomainTask(
+        uuid=str(uuid4()),
+        status=TaskStatus.processing,
+        file_name=video_title,
+        audio_duration=get_audio_duration(audio),
+        language=model_params.language,
+        task_type=TaskType.full_process,
+        task_params={
+            **model_params.model_dump(),
+            **align_params.model_dump(),
+            "asr_options": asr_options_params.model_dump(),
+            "vad_options": vad_options_params.model_dump(),
+            **diarize_params.model_dump(),
+        },
+        url=youtube_url,
+        start_time=datetime.now(tz=timezone.utc),
+    )
+
+    identifier = repository.add(task)
+    logger.info(TASK_SCHEDULED_LOG_FORMAT, identifier, TaskType.full_process)
+
+    # Schedule background processing
+    audio_params = SpeechToTextProcessingParams(
+        audio=audio,
+        identifier=identifier,
+        vad_options=vad_options_params,
+        asr_options=asr_options_params,
+        whisper_model_params=model_params,
+        alignment_params=align_params,
+        diarization_params=diarize_params,
+    )
+
+    background_tasks.add_task(
+        process_audio_common,
+        audio_params,
+        transcription_service,
+        alignment_service,
+        diarization_service,
+        speaker_assignment_service,
+        repository,
+    )
+
     return Response(identifier=identifier, message=TASK_QUEUED_MESSAGE)
