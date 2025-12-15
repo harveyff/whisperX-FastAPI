@@ -86,10 +86,7 @@ RUN uv pip install --system -e . \
     ) \
     && python3 -m gunicorn --version || (echo "ERROR: gunicorn module not found!" && exit 1) \
     && echo "Creating gunicorn wrapper script in /usr/local/bin..." \
-    && cat > /usr/local/bin/gunicorn << 'EOF' \
-#!/bin/sh
-exec python3 -m gunicorn "$@"
-EOF
+    && printf '#!/bin/sh\nexec python3 -m gunicorn "$@"\n' > /usr/local/bin/gunicorn \
     && chmod +x /usr/local/bin/gunicorn \
     && echo "Verifying gunicorn wrapper script..." \
     && ls -la /usr/local/bin/gunicorn \
