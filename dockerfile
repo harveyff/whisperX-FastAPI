@@ -48,8 +48,8 @@ COPY patch_diarize.py /tmp/
 # pyannote.audio compatibility: force upgrade to 4.0.1+ which removes AudioMetaData dependency
 RUN uv pip install --system -e . \
     && uv pip install --system ctranslate2==4.6.0 \
-    && echo "Explicitly installing gunicorn and uvicorn to ensure they're available..." \
-    && uv pip install --system --no-cache-dir "gunicorn==23.0.0" "uvicorn==0.38.0" \
+    && echo "Installing gunicorn and uvicorn using system pip3 to ensure they're in system Python..." \
+    && pip3 install --no-cache-dir "gunicorn==23.0.0" "uvicorn==0.38.0" \
     && echo "Verifying gunicorn and uvicorn installation..." \
     && python3 -c "import gunicorn; import uvicorn; print(f'gunicorn: {gunicorn.__version__}, uvicorn: {uvicorn.__version__}')" \
     && python3 -m gunicorn --version || echo "Warning: python3 -m gunicorn --version failed" \
@@ -83,9 +83,9 @@ RUN uv pip install --system -e . \
     && find /usr/local/lib/python3.*/dist-packages -type f -name '*.pyo' -delete 2>/dev/null || true \
     && find /usr/local/lib/python3.*/site-packages -type f -name '*.pyo' -delete 2>/dev/null || true \
     && echo "Re-verifying gunicorn and uvicorn after cleanup..." \
-    && python3 -c "import gunicorn; import uvicorn; print(f'gunicorn: {gunicorn.__version__}, uvicorn: {uvicorn.__version__}')" \
-    && echo "Re-installing gunicorn and uvicorn after cleanup to ensure they're available..." \
-    && uv pip install --system --no-cache-dir --force-reinstall "gunicorn==23.0.0" "uvicorn==0.38.0" \
+    && python3 -c "import gunicorn; import uvicorn; print(f'gunicorn: {gunicorn.__version__}, uvicorn: {uvicorn.__version__}')" || echo "Warning: gunicorn/uvicorn not found after cleanup, reinstalling..." \
+    && echo "Re-installing gunicorn and uvicorn using system pip3 after cleanup..." \
+    && pip3 install --no-cache-dir --force-reinstall "gunicorn==23.0.0" "uvicorn==0.38.0" \
     && echo "Final verification of gunicorn and uvicorn..." \
     && python3 -c "import gunicorn; import uvicorn; print(f'gunicorn: {gunicorn.__version__}, uvicorn: {uvicorn.__version__}')" \
     && python3 -m gunicorn --version || echo "Warning: python3 -m gunicorn --version failed" \
