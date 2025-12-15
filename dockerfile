@@ -47,12 +47,6 @@ COPY patch_diarize.py /tmp/
 # pyannote.audio compatibility: force upgrade to 4.0.1+ which removes AudioMetaData dependency
 RUN uv pip install --system -e . \
     && uv pip install --system ctranslate2==4.6.0 \
-    && echo "Ensuring gunicorn is properly installed..." \
-    && uv pip install --system --no-cache-dir "gunicorn==23.0.0" \
-    && echo "Verifying gunicorn module can be imported..." \
-    && python3 -c "import gunicorn; print(f'gunicorn module version: {gunicorn.__version__}')" \
-    && echo "Verifying gunicorn executable is available..." \
-    && gunicorn --version \
     && echo "Installing PyTorch nightly builds for latest GPU support (including RTX 5090 sm_120)..." \
     && uv pip uninstall --system -y torch torchvision torchaudio || true \
     && echo "Installing all PyTorch packages from nightly to ensure version compatibility..." \
@@ -77,10 +71,7 @@ RUN uv pip install --system -e . \
     && rm -rf /root/.cache /tmp/* /root/.uv /var/cache/* \
     && find /usr/local -type d -name '__pycache__' -exec rm -rf {} + 2>/dev/null || true \
     && find /usr/local -type f -name '*.pyc' -delete \
-    && find /usr/local -type f -name '*.pyo' -delete \
-    && echo "Final verification: ensuring gunicorn module is still accessible after cleanup..." \
-    && python3 -c "import gunicorn; print(f'gunicorn version: {gunicorn.__version__}')" \
-    && echo "Note: Use 'gunicorn' command directly, or 'python3 -m gunicorn.app.wsgiapp' if needed"
+    && find /usr/local -type f -name '*.pyo' -delete
 
 EXPOSE 8000
 
