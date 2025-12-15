@@ -47,13 +47,12 @@ COPY patch_diarize.py /tmp/
 # pyannote.audio compatibility: force upgrade to 4.0.1+ which removes AudioMetaData dependency
 RUN uv pip install --system -e . \
     && uv pip install --system ctranslate2==4.6.0 \
-    && echo "Explicitly installing gunicorn to ensure it's available..." \
+    && echo "Ensuring gunicorn is properly installed and accessible..." \
     && uv pip install --system --no-cache-dir "gunicorn==23.0.0" \
-    && echo "Verifying gunicorn installation..." \
-    && python3 -c "import gunicorn; print(f'gunicorn version: {gunicorn.__version__}')" \
-    && python3 -c "import sys; print(f'Python executable: {sys.executable}'); print(f'Python path: {sys.path}')" \
-    && which python3 || echo "python3 not in PATH" \
-    && python3 -m gunicorn --version || (echo "ERROR: gunicorn module not found!" && python3 -c "import sys; print(sys.path)" && exit 1) \
+    && echo "Verifying gunicorn installation (both as module and executable)..." \
+    && python3 -c "import gunicorn; print(f'gunicorn module version: {gunicorn.__version__}')" \
+    && python3 -m gunicorn --version \
+    && gunicorn --version \
     && echo "Installing PyTorch nightly builds for latest GPU support (including RTX 5090 sm_120)..." \
     && uv pip uninstall --system -y torch torchvision torchaudio || true \
     && echo "Installing all PyTorch packages from nightly to ensure version compatibility..." \
@@ -78,7 +77,10 @@ RUN uv pip install --system -e . \
     && rm -rf /root/.cache /tmp/* /root/.uv /var/cache/* \
     && find /usr/local -type d -name '__pycache__' -exec rm -rf {} + 2>/dev/null || true \
     && find /usr/local -type f -name '*.pyc' -delete \
-    && find /usr/local -type f -name '*.pyo' -delete
+    && find /usr/local -type f -name '*.pyo' -delete \
+    && echo "Final verification: ensuring gunicorn is still accessible after cleanup..." \
+    && python3 -m gunicorn --version \
+    && gunicorn --version
 
 EXPOSE 8000
 
