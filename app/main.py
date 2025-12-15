@@ -76,9 +76,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """
     logging.info("Application lifespan started - dependency container initialized")
 
-    # Setup web interface after app is fully initialized
-    setup_web_interface()
-
     save_openapi_json(app)
     generate_db_schema(Base.metadata.tables.values())
     yield
@@ -150,14 +147,9 @@ app.include_router(stt_router)
 app.include_router(task_router)
 app.include_router(service_router)
 
-# Web interface paths (will be initialized in lifespan)
-_html_file_path = None
-_web_interface_path = None
 
-
-def setup_web_interface():
-    """Setup web interface static files and paths."""
-    global _html_file_path, _web_interface_path
+def find_html_file():
+    """Find the HTML file path."""
     try:
         # Try multiple methods to find the project root
         _current_file = os.path.abspath(__file__)  # app/main.py
@@ -172,24 +164,21 @@ def setup_web_interface():
         # Method 3: Look for web_interface in parent directories
         def find_project_root():
             """Find project root by looking for web_interface directory."""
-            # Start from app directory and go up
-            current = os.path.dirname(_current_file)  # app/app or app/
+            current = os.path.dirname(_current_file)
             max_depth = 5
             for _ in range(max_depth):
                 # Check current directory
                 web_interface_candidate = os.path.join(current, "web_interface")
                 if os.path.exists(web_interface_candidate):
-                    logging.info(f"Found web_interface at: {web_interface_candidate}")
                     return current
                 
                 # Check parent directory
                 parent = os.path.dirname(current)
                 web_interface_candidate = os.path.join(parent, "web_interface")
                 if os.path.exists(web_interface_candidate):
-                    logging.info(f"Found web_interface at: {web_interface_candidate}")
                     return parent
                 
-                if parent == current:  # Reached root
+                if parent == current:
                     break
                 current = parent
             return None
@@ -197,61 +186,55 @@ def setup_web_interface():
         project_root_method3 = find_project_root()
 
         # Try each method in order
-        project_root = None
-        for method_name, candidate_root in [
-            ("method3 (search)", project_root_method3),
-            ("method1 (__file__)", project_root_method1),
-            ("method2 (cwd)", project_root_method2),
-        ]:
+        for candidate_root in [project_root_method3, project_root_method1, project_root_method2]:
             if candidate_root:
                 candidate_web_interface = os.path.join(candidate_root, "web_interface")
                 if os.path.exists(candidate_web_interface):
-                    project_root = candidate_root
-                    logging.info(f"Found project root using {method_name}: {project_root}")
-                    break
+                    html_file_path = os.path.normpath(os.path.join(candidate_web_interface, "index.html"))
+                    if os.path.exists(html_file_path):
+                        return html_file_path, candidate_web_interface
 
-        if not project_root:
-            # Fallback to method1
-            project_root = project_root_method1
-            logging.warning(f"Could not find web_interface, using fallback project root: {project_root}")
-
-        web_interface_path = os.path.join(project_root, "web_interface")
-        html_file_path = os.path.join(web_interface_path, "index.html")
-
-        # Normalize paths
-        web_interface_path = os.path.normpath(web_interface_path)
-        html_file_path = os.path.normpath(html_file_path)
-
-        logging.info(f"Current file: {_current_file}")
-        logging.info(f"App directory: {_app_dir}")
-        logging.info(f"Current working directory: {os.getcwd()}")
-        logging.info(f"Project root: {project_root}")
-        logging.info(f"Web interface path: {web_interface_path}")
-        logging.info(f"HTML file path: {html_file_path}")
-        logging.info(f"Web interface exists: {os.path.exists(web_interface_path)}")
-        logging.info(f"HTML file exists: {os.path.exists(html_file_path)}")
-
-        if os.path.exists(web_interface_path):
-            try:
-                app.mount("/static", StaticFiles(directory=web_interface_path), name="static")
-                logging.info("Static files mounted at /static")
-            except Exception as e:
-                logging.error(f"Failed to mount static files: {e}")
-        else:
-            logging.warning(f"Web interface directory not found at: {web_interface_path}")
-
-        _html_file_path = html_file_path
-        _web_interface_path = web_interface_path
+        # Fallback
+        html_file_path = os.path.normpath(os.path.join(project_root_method1, "web_interface", "index.html"))
+        web_interface_path = os.path.normpath(os.path.join(project_root_method1, "web_interface"))
+        return html_file_path, web_interface_path
     except Exception as e:
-        logging.error(f"Error setting up web interface: {e}", exc_info=True)
+        logging.error(f"Error finding HTML file: {e}", exc_info=True)
+        return None, None
+
+
+# Setup static files and HTML path in lifespan
+_html_file_path = None
+_web_interface_path = None
 
 
 @app.get("/", include_in_schema=False)
-async def index():
+async def index() -> RedirectResponse:
+    """Redirect to the documentation."""
+    return RedirectResponse(url="/docs", status_code=307)
+
+
+@app.get("/web", include_in_schema=False)
+async def web_interface():
     """Serve the web interface HTML page."""
-    # Try the pre-computed path first
+    global _html_file_path, _web_interface_path
+    
+    # Lazy initialization on first request
+    if _html_file_path is None:
+        _html_file_path, _web_interface_path = find_html_file()
+        
+        # Mount static files if not already mounted
+        if _web_interface_path and os.path.exists(_web_interface_path):
+            try:
+                # Check if already mounted
+                if not any(route.path == "/static" for route in app.routes if hasattr(route, "path")):
+                    app.mount("/static", StaticFiles(directory=_web_interface_path), name="static")
+                    logging.info(f"Static files mounted at /static from {_web_interface_path}")
+            except Exception as e:
+                logging.error(f"Failed to mount static files: {e}")
+    
+    # Try the found path
     if _html_file_path and os.path.exists(_html_file_path):
-        logging.info(f"Serving web interface HTML page from: {_html_file_path}")
         return FileResponse(_html_file_path, media_type="text/html")
     
     # Fallback: try alternative paths
@@ -259,22 +242,14 @@ async def index():
     alt_paths = [
         os.path.normpath(os.path.join(_project_root, "web_interface", "index.html")),
         os.path.normpath(os.path.join(os.getcwd(), "web_interface", "index.html")),
-        os.path.normpath(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "web_interface", "index.html")),
     ]
     
     for alt_path in alt_paths:
         if os.path.exists(alt_path):
-            logging.info(f"Serving web interface HTML page from alternative path: {alt_path}")
             return FileResponse(alt_path, media_type="text/html")
     
-    # If none of the paths exist, log and redirect to docs
-    logging.error("HTML file not found. Tried paths:")
-    logging.error(f"  - {_html_file_path}")
-    for alt_path in alt_paths:
-        logging.error(f"  - {alt_path}")
-    logging.error(f"Current working directory: {os.getcwd()}")
-    logging.error(f"__file__: {__file__}")
-    logging.error(f"Project root: {_project_root}")
+    # If none of the paths exist, redirect to docs
+    logging.warning("HTML file not found, redirecting to /docs")
     return RedirectResponse(url="/docs", status_code=307)
 
 
