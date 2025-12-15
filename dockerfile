@@ -53,6 +53,10 @@ RUN uv pip install --system -e . \
     && echo "Verifying gunicorn and uvicorn installation..." \
     && python3 -c "import gunicorn; import uvicorn; print(f'gunicorn: {gunicorn.__version__}, uvicorn: {uvicorn.__version__}')" \
     && python3 -m gunicorn --version || echo "Warning: python3 -m gunicorn --version failed" \
+    && echo "Creating gunicorn wrapper script early..." \
+    && printf '#!/bin/sh\nexec python3 -m gunicorn "$@"\n' > /usr/local/bin/gunicorn \
+    && chmod +x /usr/local/bin/gunicorn \
+    && /usr/local/bin/gunicorn --version || echo "Warning: gunicorn wrapper failed at early stage" \
     && echo "Installing PyTorch nightly builds for latest GPU support (including RTX 5090 sm_120)..." \
     && uv pip uninstall --system -y torch torchvision torchaudio || true \
     && echo "Installing all PyTorch packages from nightly to ensure version compatibility..." \
@@ -74,27 +78,25 @@ RUN uv pip install --system -e . \
     && rm -f /tmp/patch_whisperx.py \
     && echo "Fixing huggingface-hub version compatibility..." \
     && uv pip install --system --no-cache-dir "huggingface-hub>=0.34.0,<1.0" \
+    && echo "Final verification of critical packages before cleanup..." \
+    && python3 -c "import gunicorn; import uvicorn; import pydantic; import pydantic_settings; print(f'✓ All packages available: gunicorn={gunicorn.__version__}, uvicorn={uvicorn.__version__}, pydantic={pydantic.__version__}, pydantic_settings={pydantic_settings.__version__}')" \
     && echo "Cleaning up cache files only (DO NOT touch installed packages)..." \
     && rm -rf /root/.cache /tmp/* /root/.uv /var/cache/* \
-    && echo "Final verification of critical packages..." \
-    && python3 -c "import gunicorn; import uvicorn; import pydantic; import pydantic_settings; print(f'✓ All packages available: gunicorn={gunicorn.__version__}, uvicorn={uvicorn.__version__}, pydantic={pydantic.__version__}, pydantic_settings={pydantic_settings.__version__}')" || ( \
-        echo "ERROR: Critical packages missing! Reinstalling..." \
+    && echo "Verifying critical packages after cleanup..." \
+    && python3 -c "import gunicorn; import uvicorn; import pydantic; import pydantic_settings; print(f'✓ All packages still available: gunicorn={gunicorn.__version__}, uvicorn={uvicorn.__version__}, pydantic={pydantic.__version__}, pydantic_settings={pydantic_settings.__version__}')" || ( \
+        echo "ERROR: Critical packages missing after cleanup! Reinstalling..." \
         && pip3 install --no-cache-dir -e . \
         && pip3 install --no-cache-dir ctranslate2==4.6.0 \
         && pip3 install --no-cache-dir --force-reinstall "gunicorn==23.0.0" "uvicorn==0.38.0" \
         && python3 -c "import gunicorn; import uvicorn; import pydantic; import pydantic_settings; print(f'✓ Reinstalled: gunicorn={gunicorn.__version__}, uvicorn={uvicorn.__version__}, pydantic={pydantic.__version__}, pydantic_settings={pydantic_settings.__version__}')" \
     ) \
-    && echo "Testing python3 -m gunicorn..." \
-    && python3 -m gunicorn --version 2>&1 || (echo "ERROR: python3 -m gunicorn failed! Checking Python path..." && python3 -c "import sys; print('Python paths:', sys.path)" && exit 1) \
-    && echo "Creating gunicorn wrapper script in /usr/local/bin..." \
+    && echo "Recreating gunicorn wrapper script after cleanup..." \
     && printf '#!/bin/sh\nexec python3 -m gunicorn "$@"\n' > /usr/local/bin/gunicorn \
     && chmod +x /usr/local/bin/gunicorn \
-    && echo "Verifying gunicorn wrapper script..." \
+    && echo "Final verification of gunicorn wrapper..." \
     && test -f /usr/local/bin/gunicorn || (echo "ERROR: gunicorn wrapper script not created!" && exit 1) \
-    && ls -la /usr/local/bin/gunicorn \
-    && echo "Testing gunicorn wrapper script..." \
-    && /usr/local/bin/gunicorn --version 2>&1 || (echo "ERROR: gunicorn wrapper failed!" && cat /usr/local/bin/gunicorn && exit 1) \
-    && echo "✓ Gunicorn wrapper script created and verified successfully"
+    && /usr/local/bin/gunicorn --version || (echo "ERROR: gunicorn wrapper failed!" && cat /usr/local/bin/gunicorn && exit 1) \
+    && echo "✓ All verifications passed successfully"
 
 EXPOSE 8000
 
