@@ -82,12 +82,18 @@ RUN uv pip install --system -e . \
     && find /usr/local/lib/python3.*/site-packages -type f -name '*.pyc' -delete 2>/dev/null || true \
     && find /usr/local/lib/python3.*/dist-packages -type f -name '*.pyo' -delete 2>/dev/null || true \
     && find /usr/local/lib/python3.*/site-packages -type f -name '*.pyo' -delete 2>/dev/null || true \
-    && echo "Creating gunicorn wrapper script after cleanup to ensure availability..." \
+    && echo "Re-verifying gunicorn and uvicorn after cleanup..." \
+    && python3 -c "import gunicorn; import uvicorn; print(f'gunicorn: {gunicorn.__version__}, uvicorn: {uvicorn.__version__}')" \
+    && echo "Re-installing gunicorn and uvicorn after cleanup to ensure they're available..." \
+    && uv pip install --system --no-cache-dir --force-reinstall "gunicorn==23.0.0" "uvicorn==0.38.0" \
+    && echo "Final verification of gunicorn and uvicorn..." \
+    && python3 -c "import gunicorn; import uvicorn; print(f'gunicorn: {gunicorn.__version__}, uvicorn: {uvicorn.__version__}')" \
+    && python3 -m gunicorn --version || echo "Warning: python3 -m gunicorn --version failed" \
+    && echo "Creating gunicorn wrapper script..." \
     && echo '#!/bin/sh' > /usr/local/bin/gunicorn \
     && echo 'exec python3 -m gunicorn "$@"' >> /usr/local/bin/gunicorn \
     && chmod +x /usr/local/bin/gunicorn \
-    && echo "Verifying gunicorn wrapper after cleanup..." \
-    && /usr/local/bin/gunicorn --version || python3 -m gunicorn --version || echo "Warning: gunicorn wrapper verification failed"
+    && /usr/local/bin/gunicorn --version || echo "Warning: gunicorn wrapper verification failed"
 
 EXPOSE 8000
 
