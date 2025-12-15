@@ -85,11 +85,16 @@ RUN uv pip install --system -e . \
         && python3 -c "import gunicorn; import uvicorn; import pydantic; import pydantic_settings; print(f'✓ Reinstalled: gunicorn={gunicorn.__version__}, uvicorn={uvicorn.__version__}, pydantic={pydantic.__version__}, pydantic_settings={pydantic_settings.__version__}')" \
     ) \
     && python3 -m gunicorn --version || (echo "ERROR: gunicorn module not found!" && exit 1) \
-    && echo "Creating gunicorn wrapper script..." \
-    && echo '#!/bin/sh' > /usr/local/bin/gunicorn \
-    && echo 'exec python3 -m gunicorn "$@"' >> /usr/local/bin/gunicorn \
+    && echo "Creating gunicorn wrapper script in /usr/local/bin..." \
+    && cat > /usr/local/bin/gunicorn << 'EOF' \
+#!/bin/sh
+exec python3 -m gunicorn "$@"
+EOF
     && chmod +x /usr/local/bin/gunicorn \
-    && /usr/local/bin/gunicorn --version || echo "Warning: gunicorn wrapper verification failed"
+    && echo "Verifying gunicorn wrapper script..." \
+    && ls -la /usr/local/bin/gunicorn \
+    && /usr/local/bin/gunicorn --version || (echo "ERROR: gunicorn wrapper failed!" && exit 1) \
+    && echo "✓ Gunicorn wrapper script created and verified successfully"
 
 EXPOSE 8000
 
