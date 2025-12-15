@@ -48,10 +48,13 @@ COPY patch_diarize.py /tmp/
 # pyannote.audio compatibility: force upgrade to 4.0.1+ which removes AudioMetaData dependency
 RUN uv pip install --system -e . \
     && uv pip install --system ctranslate2==4.6.0 \
-    && echo "Explicitly installing gunicorn to ensure it's available..." \
-    && uv pip install --system --no-cache-dir "gunicorn==23.0.0" \
-    && echo "Verifying gunicorn installation..." \
-    && python3 -c "import gunicorn; print(f'gunicorn installed: {gunicorn.__version__}')" \
+    && echo "Explicitly installing gunicorn and uvicorn to ensure they're available..." \
+    && uv pip install --system --no-cache-dir "gunicorn==23.0.0" "uvicorn==0.38.0" \
+    && echo "Verifying gunicorn and uvicorn installation..." \
+    && python3 -c "import gunicorn; import uvicorn; print(f'gunicorn: {gunicorn.__version__}, uvicorn: {uvicorn.__version__}')" \
+    && echo "Checking gunicorn executable location..." \
+    && python3 -c "import gunicorn; import os; print('gunicorn module path:', gunicorn.__file__)" \
+    && python3 -m gunicorn.app.wsgiapp --version || echo "Warning: python3 -m gunicorn.app.wsgiapp failed" \
     && echo "Installing PyTorch nightly builds for latest GPU support (including RTX 5090 sm_120)..." \
     && uv pip uninstall --system -y torch torchvision torchaudio || true \
     && echo "Installing all PyTorch packages from nightly to ensure version compatibility..." \
@@ -84,4 +87,4 @@ RUN uv pip install --system -e . \
 
 EXPOSE 8000
 
-ENTRYPOINT ["python3", "-m", "gunicorn.app.wsgiapp", "--bind", "0.0.0.0:8000", "--workers", "1", "--timeout", "0", "--log-config", "gunicorn_logging.conf", "--log-level", "info", "app.main:app", "-k", "uvicorn.workers.UvicornWorker"]
+ENTRYPOINT ["python3", "-m", "gunicorn", "--bind", "0.0.0.0:8000", "--workers", "1", "--timeout", "0", "--log-config", "gunicorn_logging.conf", "--log-level", "info", "app.main:app", "-k", "uvicorn.workers.UvicornWorker"]
