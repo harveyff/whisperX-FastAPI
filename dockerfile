@@ -71,8 +71,8 @@ RUN uv pip install --system -e . \
     && rm -f /tmp/patch_whisperx.py \
     && echo "Fixing huggingface-hub version compatibility..." \
     && uv pip install --system --no-cache-dir "huggingface-hub>=0.34.0,<1.0" \
-    && echo "Reinstalling critical runtime packages to ensure they're available after all operations..." \
-    && pip3 install --no-cache-dir --force-reinstall "gunicorn==23.0.0" "uvicorn==0.38.0" \
+    && echo "Reinstalling critical runtime packages using uv to ensure they're in system Python..." \
+    && uv pip install --system --no-cache-dir --force-reinstall "gunicorn==23.0.0" "uvicorn==0.38.0" "fastapi==0.117.1" "pydantic>=2.0.0" "pydantic-settings>=2.0.0" "dependency-injector>=4.41.0" "whisperx==3.7.2" "sqlalchemy" "python-dotenv==1.1.1" "python-multipart==0.0.20" \
     && echo "✓ Build completed successfully"
 
 EXPOSE 8000
