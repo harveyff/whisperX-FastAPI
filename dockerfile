@@ -73,4 +73,4 @@ RUN uv pip install --system -e . \
 
 EXPOSE 8000
 
-ENTRYPOINT ["/usr/local/bin/gunicorn", "--bind", "0.0.0.0:8000", "--workers", "1", "--timeout", "0", "--log-config", "gunicorn_logging.conf", "--log-level", "info", "app.main:app", "-k", "uvicorn.workers.UvicornWorker"]
+ENTRYPOINT ["python3", "-m", "gunicorn", "--bind", "0.0.0.0:8000", "--workers", "1", "--timeout", "0", "--log-config", "gunicorn_logging.conf", "--log-level", "info", "app.main:app", "-k", "uvicorn.workers.UvicornWorker"]
