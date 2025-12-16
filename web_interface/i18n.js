@@ -287,6 +287,14 @@ function applyLanguage() {
         }
     });
     
+    // 更新所有带 data-i18n-placeholder 属性的 placeholder
+    document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
+        const key = el.getAttribute('data-i18n-placeholder');
+        if (lang[key]) {
+            el.placeholder = lang[key];
+        }
+    });
+    
     // 更新上传区域（仅在未选择文件时）
     const uploadContent = document.querySelector('.upload-content');
     if (uploadContent && !uploadContent.textContent.includes('✅') && !uploadContent.textContent.includes('File Selected')) {

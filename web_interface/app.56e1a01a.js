@@ -3,8 +3,8 @@
 // ============================================================================
 // 每次修改文件时更新这个hash值，确保浏览器加载最新版本
 // Hash值基于文件关键内容生成，每次修改后更新
-const APP_JS_HASH = 'v2.0.3-fixed-tabs-collapsible-stack'; // 文件内容hash标识
-const APP_JS_VERSION = '2.0.3-' + Date.now();
+const APP_JS_HASH = 'v2.0.4-fixed-stack-overflow-throttle'; // 文件内容hash标识
+const APP_JS_VERSION = '2.0.4-' + Date.now();
 const APP_JS_BUILD_TIME = new Date().toISOString();
 
 console.log('========================================');
@@ -13,7 +13,7 @@ console.log('[App.js] 版本:', APP_JS_VERSION);
 console.log('[App.js] Hash标识:', APP_JS_HASH);
 console.log('[App.js] 构建时间:', APP_JS_BUILD_TIME);
 console.log('[App.js] 加载时间:', new Date().toLocaleString());
-console.log('[App.js] 如果Hash标识不是 v2.0.3-fixed-tabs-collapsible-stack，说明文件未更新');
+console.log('[App.js] 如果Hash标识不是 v2.0.4-fixed-stack-overflow-throttle，说明文件未更新');
 console.log('========================================');
 
 // 语法检查：如果这行代码能执行，说明前面的代码没有语法错误
@@ -542,8 +542,22 @@ async function handleCompletedTask(data) {
         return;
     }
     
+    // 先清理之前的监听器和状态
+    if (currentTimeUpdateHandler) {
+        const videoPlayer = getElement('os-videoPlayer');
+        if (videoPlayer) {
+            try {
+                videoPlayer.removeEventListener('timeupdate', currentTimeUpdateHandler);
+            } catch (e) {
+                console.warn('[handleCompletedTask] 清理旧监听器时出错:', e);
+            }
+        }
+        currentTimeUpdateHandler = null;
+    }
+    
     // 重置转录显示标志，允许重新显示
     transcriptDisplayed = false;
+    lastUpdateTime = 0;
     
     const result = data.result;
     
@@ -630,6 +644,8 @@ async function handleCompletedTask(data) {
 // 视频时间更新处理函数（全局变量，用于正确移除事件监听器）
 let currentTimeUpdateHandler = null;
 let transcriptDisplayed = false; // 防止重复显示
+let lastUpdateTime = 0; // 节流：上次更新时间
+const UPDATE_THROTTLE_MS = 100; // 节流间隔：100毫秒
 
 // 显示转录文本
 function displayTranscript(segments, transcriptContent, videoPlayer) {
@@ -647,29 +663,40 @@ function displayTranscript(segments, transcriptContent, videoPlayer) {
     console.log('[displayTranscript] 开始显示转录文本，段落数:', segments.length);
     transcriptDisplayed = true;
     
-    transcriptContent.innerHTML = segments.map((segment, index) => {
+    // 先清除之前的内容，避免重复添加事件监听器
+    transcriptContent.innerHTML = '';
+    
+    // 创建文档片段以提高性能
+    const fragment = document.createDocumentFragment();
+    const segmentsArray = segments.map((segment, index) => {
         const startTime = formatTime(segment.start);
         const endTime = formatTime(segment.end);
         const speaker = segment.speaker ? `<div class="speaker">${t('speaker')}: ${segment.speaker}</div>` : '';
         
-        return `
-            <div class="transcript-segment" data-start="${segment.start}" data-end="${segment.end}">
-                <div class="time">${startTime} - ${endTime}</div>
-                <div class="text">${segment.text}</div>
-                ${speaker}
-            </div>
+        const segmentDiv = document.createElement('div');
+        segmentDiv.className = 'transcript-segment';
+        segmentDiv.setAttribute('data-start', segment.start);
+        segmentDiv.setAttribute('data-end', segment.end);
+        segmentDiv.innerHTML = `
+            <div class="time">${startTime} - ${endTime}</div>
+            <div class="text">${segment.text}</div>
+            ${speaker}
         `;
-    }).join('');
-
-    // 点击文本跳转到对应时间
-    transcriptContent.querySelectorAll('.transcript-segment').forEach(segment => {
-        segment.addEventListener('click', () => {
-            const start = parseFloat(segment.dataset.start);
+        
+        // 添加点击事件
+        segmentDiv.addEventListener('click', () => {
+            const start = parseFloat(segmentDiv.dataset.start);
             if (videoPlayer && !isNaN(start)) {
                 videoPlayer.currentTime = start;
             }
         });
+        
+        return segmentDiv;
     });
+    
+    // 一次性添加到文档片段
+    segmentsArray.forEach(seg => fragment.appendChild(seg));
+    transcriptContent.appendChild(fragment);
 
     // 视频播放时高亮对应文本
     if (videoPlayer) {
@@ -685,32 +712,67 @@ function displayTranscript(segments, transcriptContent, videoPlayer) {
             currentTimeUpdateHandler = null;
         }
         
-        // 创建新的事件处理函数
+        // 重置节流时间
+        lastUpdateTime = 0;
+        
+        // 创建新的事件处理函数（带节流）
         currentTimeUpdateHandler = () => {
-            if (!videoPlayer || !transcriptContent) return;
+            // 节流：限制更新频率
+            const now = Date.now();
+            if (now - lastUpdateTime < UPDATE_THROTTLE_MS) {
+                return;
+            }
+            lastUpdateTime = now;
+            
+            // 安全检查
+            if (!videoPlayer || !transcriptContent) {
+                return;
+            }
             
             const currentTime = videoPlayer.currentTime;
-            if (isNaN(currentTime)) return;
+            if (isNaN(currentTime) || !isFinite(currentTime)) {
+                return;
+            }
             
             try {
-                transcriptContent.querySelectorAll('.transcript-segment').forEach(segment => {
+                const segments = transcriptContent.querySelectorAll('.transcript-segment');
+                if (!segments || segments.length === 0) {
+                    return;
+                }
+                
+                // 批量更新，避免频繁的 DOM 操作
+                segments.forEach(segment => {
                     const start = parseFloat(segment.dataset.start);
                     const end = parseFloat(segment.dataset.end);
+                    
                     if (!isNaN(start) && !isNaN(end) && currentTime >= start && currentTime <= end) {
-                        segment.classList.add('active');
+                        if (!segment.classList.contains('active')) {
+                            segment.classList.add('active');
+                        }
                     } else {
-                        segment.classList.remove('active');
+                        if (segment.classList.contains('active')) {
+                            segment.classList.remove('active');
+                        }
                     }
                 });
             } catch (e) {
                 console.error('[displayTranscript] 更新高亮时出错:', e);
+                // 如果出错，移除监听器防止无限循环
+                if (currentTimeUpdateHandler) {
+                    try {
+                        videoPlayer.removeEventListener('timeupdate', currentTimeUpdateHandler);
+                        currentTimeUpdateHandler = null;
+                    } catch (removeError) {
+                        console.error('[displayTranscript] 移除监听器失败:', removeError);
+                    }
+                }
             }
         };
         
         // 添加新的事件监听器
         try {
-            videoPlayer.addEventListener('timeupdate', currentTimeUpdateHandler);
-            console.log('[displayTranscript] 已添加视频时间更新监听器');
+            videoPlayer.addEventListener('timeupdate', currentTimeUpdateHandler, { passive: true });
+            console.log('[displayTranscript] 已添加视频时间更新监听器（带节流）');
         } catch (e) {
             console.error('[displayTranscript] 添加监听器时出错:', e);
         }
@@ -914,4 +976,3 @@ if (document.readyState === 'loading') {
     console.log('[App.js] DOM 已加载完成，立即初始化');
     initializeApp();
 }
-
