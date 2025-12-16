@@ -4,12 +4,24 @@
 # Import torchvision fix first to register missing operators
 import app.torchvision_fix  # noqa: F401, E402
 
-# Apply torchaudio compatibility fix
+# Apply torchaudio compatibility fixes
 try:
     import torchaudio
+    # Fix AudioMetaData
     if not hasattr(torchaudio, 'AudioMetaData'):
         from types import SimpleNamespace
         torchaudio.AudioMetaData = SimpleNamespace
+    # Fix list_audio_backends for pyannote.audio>=4.0.1
+    if not hasattr(torchaudio, 'list_audio_backends'):
+        def list_audio_backends():
+            """Compatibility function for list_audio_backends."""
+            try:
+                if hasattr(torchaudio, 'backend') and hasattr(torchaudio.backend, 'list_audio_backends'):
+                    return torchaudio.backend.list_audio_backends()
+                return []
+            except Exception:
+                return []
+        torchaudio.list_audio_backends = list_audio_backends
 except ImportError:
     pass
 

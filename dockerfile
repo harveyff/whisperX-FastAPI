@@ -39,6 +39,7 @@ COPY web_interface web_interface/
 COPY app/gunicorn_logging.conf .
 COPY patch_whisperx.py /tmp/
 COPY patch_diarize.py /tmp/
+COPY patch_torchaudio.py /tmp/
 
 # Install Python dependencies using UV with pyproject.toml
 # UV automatically selects CUDA 12.8 wheels on Linux
@@ -61,6 +62,8 @@ RUN uv pip install --system -e . \
     && echo "Force upgrading pyannote.audio and numpy for torchaudio compatibility..." \
     && uv pip uninstall --system -y pyannote.audio pyannote.core pyannote.metrics pyannote.pipeline pyannote.database || true \
     && uv pip install --system --upgrade --force-reinstall --no-cache-dir "numpy>=2.3" "pyannote.audio>=4.0.1" \
+    && echo "Patching torchaudio for pyannote.audio compatibility..." \
+    && python3 /tmp/patch_torchaudio.py 2>&1 || echo "Warning: torchaudio patch script had errors, continuing..." \
     && echo "Patching whisperx to use 'token' instead of 'use_auth_token' for pyannote.audio>=4.0.1..." \
     && python3 /tmp/patch_whisperx.py 2>&1 || echo "Warning: patch script had errors, continuing..." \
     && find /usr/local/lib/python3.*/dist-packages/whisperx -name "*.py" -type f -exec sed -i 's/\buse_auth_token\b/token/g' {} \; 2>/dev/null || true \
