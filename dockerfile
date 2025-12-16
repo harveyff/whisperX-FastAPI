@@ -72,9 +72,9 @@ RUN uv pip install --system -e . \
     && echo "Fixing huggingface-hub version compatibility..." \
     && uv pip install --system --no-cache-dir "huggingface-hub>=0.34.0,<1.0" \
     && echo "Reinstalling critical packages to ensure they're available after all operations..." \
-    && pip3 install --no-cache-dir --force-reinstall "gunicorn==23.0.0" "uvicorn==0.38.0" "pydantic>=2.0.0" "pydantic-settings>=2.0.0" \
+    && pip3 install --no-cache-dir --force-reinstall "gunicorn==23.0.0" "uvicorn==0.38.0" "fastapi==0.117.1" "pydantic>=2.0.0" "pydantic-settings>=2.0.0" \
     && echo "Final verification: ensuring all critical packages are available..." \
-    && python3 -c "import gunicorn; import uvicorn; import pydantic; import pydantic_settings; print(f'✓ Final check: gunicorn={gunicorn.__version__}, uvicorn={uvicorn.__version__}, pydantic={pydantic.__version__}, pydantic_settings={pydantic_settings.__version__}')" || (echo "ERROR: Some critical packages still missing!" && python3 -c "import sys; print('Python paths:', sys.path)" && exit 1)
+    && python3 -c "import gunicorn; import uvicorn; import fastapi; import pydantic; import pydantic_settings; print(f'✓ Final check: gunicorn={gunicorn.__version__}, uvicorn={uvicorn.__version__}, fastapi={fastapi.__version__}, pydantic={pydantic.__version__}, pydantic_settings={pydantic_settings.__version__}')" || (echo "ERROR: Some critical packages still missing!" && python3 -c "import sys; print('Python paths:', sys.path)" && exit 1)
 
 EXPOSE 8000
 
