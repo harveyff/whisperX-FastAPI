@@ -1,135 +1,265 @@
+// ============================================================================
 // API 基础配置
+// ============================================================================
 const API_BASE_URL = 'http://localhost:8000';
+
+// ============================================================================
+// 全局状态变量
+// ============================================================================
 let currentTaskId = null;
 let currentFile = null;
 let currentVideoUrl = null;
 let currentSubtitleData = null;
+
+// ============================================================================
+// 工具函数
+// ============================================================================
 
 // 多语言支持
 function t(key) {
     return window.t ? window.t(key) : key;
 }
 
-// DOM 元素 - 一步生成Tab
-const uploadArea = document.getElementById('uploadArea');
-const fileInput = document.getElementById('fileInput');
-const startProcessBtn = document.getElementById('os-startProcessBtn');
-
-// 初始化 - 一步生成Tab
-if (uploadArea && fileInput) {
-    uploadArea.addEventListener('click', () => fileInput.click());
-    uploadArea.addEventListener('dragover', handleDragOver);
-    uploadArea.addEventListener('dragleave', handleDragLeave);
-    uploadArea.addEventListener('drop', handleDrop);
-    fileInput.addEventListener('change', handleFileSelect);
+// 获取 DOM 元素（安全获取）
+function getElement(id) {
+    return document.getElementById(id);
 }
 
-if (startProcessBtn) {
-    startProcessBtn.addEventListener('click', startProcessing);
+// 更新进度
+function updateProgress(percent, text) {
+    const progressFill = getElement('os-progressFill');
+    const progressText = getElement('os-progressText');
+    if (progressFill) progressFill.style.width = percent + '%';
+    if (progressText) progressText.textContent = text;
 }
 
-// 下载按钮事件
-const osDownloadSrtBtn = document.getElementById('os-downloadSrtBtn');
-const osDownloadVttBtn = document.getElementById('os-downloadVttBtn');
-const osDownloadJsonBtn = document.getElementById('os-downloadJsonBtn');
-
-if (osDownloadSrtBtn) osDownloadSrtBtn.addEventListener('click', () => downloadSubtitle('srt', 'os'));
-if (osDownloadVttBtn) osDownloadVttBtn.addEventListener('click', () => downloadSubtitle('vtt', 'os'));
-if (osDownloadJsonBtn) osDownloadJsonBtn.addEventListener('click', () => downloadJson('os'));
-
-// 语言切换
-const languageSelector = document.getElementById('languageSelector');
-if (languageSelector) {
-    languageSelector.addEventListener('change', (e) => {
-        if (window.switchLanguage) {
-            window.switchLanguage(e.target.value);
-        }
-    });
+// 时间格式化函数
+function formatTime(seconds) {
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
 }
 
-// 绑定事件（在语言切换后重新绑定）
-function bindEvents() {
-    const diarizationCheckbox = document.getElementById('enableDiarization');
-    if (diarizationCheckbox && !diarizationCheckbox.onchange) {
-        // 事件已在HTML中绑定
-    }
+function formatTimeSRT(seconds) {
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const secs = Math.floor(seconds % 60);
+    const millis = Math.floor((seconds % 1) * 1000);
+    return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')},${millis.toString().padStart(3, '0')}`;
 }
 
-// 拖拽处理
-function handleDragOver(e) {
-    e.preventDefault();
-    uploadArea.classList.add('dragover');
+function formatTimeVTT(seconds) {
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const secs = Math.floor(seconds % 60);
+    const millis = Math.floor((seconds % 1) * 1000);
+    return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}.${millis.toString().padStart(3, '0')}`;
 }
 
-function handleDragLeave(e) {
-    e.preventDefault();
-    uploadArea.classList.remove('dragover');
-}
+// ============================================================================
+// 文件处理相关函数
+// ============================================================================
 
-function handleDrop(e) {
-    e.preventDefault();
-    uploadArea.classList.remove('dragover');
-    const files = e.dataTransfer.files;
-    if (files.length > 0) {
-        handleFile(files[0]);
-    }
-}
-
+// 处理文件选择
 function handleFileSelect(e) {
-    if (e.target.files.length > 0) {
+    if (e.target.files && e.target.files.length > 0) {
         handleFile(e.target.files[0]);
     }
 }
 
+// 处理文件
 function handleFile(file) {
+    if (!file) return;
+    
     currentFile = file;
-    uploadArea.innerHTML = `
-        <div class="upload-content">
-            <p>${t('fileSelected')}: ${file.name}</p>
-            <p class="file-hint">${t('fileSize')}: ${(file.size / 1024 / 1024).toFixed(2)} MB</p>
-        </div>
-    `;
+    
+    // 更新上传区域显示
+    const uploadArea = getElement('uploadArea');
+    if (uploadArea) {
+        uploadArea.innerHTML = `
+            <div class="upload-content">
+                <p>${t('fileSelected')}: ${file.name}</p>
+                <p class="file-hint">${t('fileSize')}: ${(file.size / 1024 / 1024).toFixed(2)} MB</p>
+            </div>
+        `;
+    }
     
     // 显示配置区域
-    const configSection = document.getElementById('os-configSection');
+    const configSection = getElement('os-configSection');
     if (configSection) {
         configSection.style.display = 'block';
     }
     
-    // 如果是视频文件，创建预览
-    if (file.type.startsWith('video/')) {
-        const videoPlayer = document.getElementById('os-videoPlayer');
-        const videoSource = document.getElementById('os-videoSource');
-        if (videoPlayer && videoSource) {
+    // 处理视频预览
+    handleVideoPreview(file);
+}
+
+// 处理视频预览
+function handleVideoPreview(file) {
+    const videoPlayer = getElement('os-videoPlayer');
+    const videoSource = getElement('os-videoSource');
+    
+    if (!videoPlayer || !videoSource) return;
+    
+    const videoContainer = videoPlayer.closest('.video-player-container');
+    
+    if (file.type && file.type.startsWith('video/')) {
+        // 如果是视频文件，创建预览
+        try {
+            // 清理之前的 URL
+            if (currentVideoUrl) {
+                URL.revokeObjectURL(currentVideoUrl);
+            }
+            
             const url = URL.createObjectURL(file);
             currentVideoUrl = url;
             videoSource.src = url;
             videoPlayer.load();
             
             // 显示视频播放器
-            const videoContainer = videoPlayer.closest('.video-player-container');
             if (videoContainer) {
                 videoContainer.style.display = 'block';
             }
+        } catch (error) {
+            console.error('Failed to create video preview:', error);
         }
     } else {
         // 隐藏视频播放器（如果是音频文件）
-        const videoPlayer = document.getElementById('os-videoPlayer');
-        if (videoPlayer) {
-            const videoContainer = videoPlayer.closest('.video-player-container');
-            if (videoContainer) {
-                videoContainer.style.display = 'none';
-            }
+        if (videoContainer) {
+            videoContainer.style.display = 'none';
         }
     }
 }
+
+// ============================================================================
+// 拖拽处理函数
+// ============================================================================
+
+function handleDragOver(e) {
+    e.preventDefault();
+    const uploadArea = getElement('uploadArea');
+    if (uploadArea) {
+        uploadArea.classList.add('dragover');
+    }
+}
+
+function handleDragLeave(e) {
+    e.preventDefault();
+    const uploadArea = getElement('uploadArea');
+    if (uploadArea) {
+        uploadArea.classList.remove('dragover');
+    }
+}
+
+function handleDrop(e) {
+    e.preventDefault();
+    const uploadArea = getElement('uploadArea');
+    if (uploadArea) {
+        uploadArea.classList.remove('dragover');
+    }
+    
+    const files = e.dataTransfer.files;
+    if (files && files.length > 0) {
+        handleFile(files[0]);
+    }
+}
+
+// ============================================================================
+// 参数收集函数
+// ============================================================================
+
+// 收集所有参数
+function collectAllParams(prefix) {
+    const params = new URLSearchParams();
+    
+    // 主要参数
+    const language = getElement(`${prefix}-language`)?.value;
+    const model = getElement(`${prefix}-model`)?.value;
+    const device = getElement(`${prefix}-device`)?.value;
+    
+    if (language) params.append('language', language);
+    if (model) params.append('model', model);
+    if (device) params.append('device', device);
+    
+    // Whisper模型参数
+    const task = getElement(`${prefix}-task`)?.value;
+    const device_index = getElement(`${prefix}-device_index`)?.value;
+    const threads = getElement(`${prefix}-threads`)?.value;
+    const batch_size = getElement(`${prefix}-batch_size`)?.value;
+    const chunk_size = getElement(`${prefix}-chunk_size`)?.value;
+    const compute_type = getElement(`${prefix}-compute_type`)?.value;
+    
+    if (task) params.append('task', task);
+    if (device_index) params.append('device_index', device_index);
+    if (threads) params.append('threads', threads);
+    if (batch_size) params.append('batch_size', batch_size);
+    if (chunk_size) params.append('chunk_size', chunk_size);
+    if (compute_type) params.append('compute_type', compute_type);
+    
+    // 对齐参数
+    const align_model = getElement(`${prefix}-align_model`)?.value;
+    const interpolate_method = getElement(`${prefix}-interpolate_method`)?.value;
+    const return_char_alignments = getElement(`${prefix}-return_char_alignments`)?.checked;
+    
+    if (align_model) params.append('align_model', align_model);
+    if (interpolate_method) params.append('interpolate_method', interpolate_method);
+    if (return_char_alignments) params.append('return_char_alignments', 'true');
+    
+    // 说话人分离参数
+    const min_speakers = getElement(`${prefix}-min_speakers`)?.value;
+    const max_speakers = getElement(`${prefix}-max_speakers`)?.value;
+    
+    if (min_speakers) params.append('min_speakers', min_speakers);
+    if (max_speakers) params.append('max_speakers', max_speakers);
+    
+    // ASR选项
+    const beam_size = getElement(`${prefix}-beam_size`)?.value;
+    const best_of = getElement(`${prefix}-best_of`)?.value;
+    const patience = getElement(`${prefix}-patience`)?.value;
+    const length_penalty = getElement(`${prefix}-length_penalty`)?.value;
+    const temperatures = getElement(`${prefix}-temperatures`)?.value;
+    const compression_ratio_threshold = getElement(`${prefix}-compression_ratio_threshold`)?.value;
+    const log_prob_threshold = getElement(`${prefix}-log_prob_threshold`)?.value;
+    const no_speech_threshold = getElement(`${prefix}-no_speech_threshold`)?.value;
+    const initial_prompt = getElement(`${prefix}-initial_prompt`)?.value;
+    const suppress_tokens = getElement(`${prefix}-suppress_tokens`)?.value;
+    const suppress_numerals = getElement(`${prefix}-suppress_numerals`)?.checked;
+    const hotwords = getElement(`${prefix}-hotwords`)?.value;
+    
+    if (beam_size) params.append('beam_size', beam_size);
+    if (best_of) params.append('best_of', best_of);
+    if (patience) params.append('patience', patience);
+    if (length_penalty) params.append('length_penalty', length_penalty);
+    if (temperatures) params.append('temperatures', temperatures);
+    if (compression_ratio_threshold) params.append('compression_ratio_threshold', compression_ratio_threshold);
+    if (log_prob_threshold) params.append('log_prob_threshold', log_prob_threshold);
+    if (no_speech_threshold) params.append('no_speech_threshold', no_speech_threshold);
+    if (initial_prompt) params.append('initial_prompt', initial_prompt);
+    if (suppress_tokens) params.append('suppress_tokens', suppress_tokens);
+    if (suppress_numerals) params.append('suppress_numerals', 'true');
+    if (hotwords) params.append('hotwords', hotwords);
+    
+    // VAD选项
+    const vad_onset = getElement(`${prefix}-vad_onset`)?.value;
+    const vad_offset = getElement(`${prefix}-vad_offset`)?.value;
+    
+    if (vad_onset) params.append('vad_onset', vad_onset);
+    if (vad_offset) params.append('vad_offset', vad_offset);
+    
+    return params;
+}
+
+// ============================================================================
+// 处理流程相关函数
+// ============================================================================
 
 // 开始处理
 async function startProcessing() {
     // 检查上传类型
     const uploadType = document.querySelector('input[name="uploadType"]:checked')?.value || 'file';
-    const urlInput = document.getElementById('urlInput');
-    const youtubeInput = document.getElementById('youtubeInput');
+    const urlInput = getElement('urlInput');
+    const youtubeInput = getElement('youtubeInput');
     
     // 验证输入
     if (uploadType === 'file' && !currentFile) {
@@ -143,10 +273,11 @@ async function startProcessing() {
         return;
     }
 
-    const startProcessBtn = document.getElementById('os-startProcessBtn');
+    // 更新UI状态
+    const startProcessBtn = getElement('os-startProcessBtn');
     const configSection = document.querySelector('#one-step-tab .section:nth-of-type(2)');
-    const progressSection = document.getElementById('os-progressSection');
-    const resultSection = document.getElementById('os-resultSection');
+    const progressSection = getElement('os-progressSection');
+    const resultSection = getElement('os-resultSection');
     
     if (startProcessBtn) startProcessBtn.disabled = true;
     if (configSection) configSection.style.display = 'none';
@@ -199,7 +330,7 @@ async function startProcessing() {
         currentTaskId = data.identifier;
         
         updateProgress(20, t('processing'));
-        const taskInfo = document.getElementById('os-taskInfo');
+        const taskInfo = getElement('os-taskInfo');
         if (taskInfo) {
             taskInfo.innerHTML = `<div><strong>${t('taskId')}:</strong> ${currentTaskId}</div>`;
         }
@@ -214,96 +345,19 @@ async function startProcessing() {
     }
 }
 
-// 收集所有参数
-function collectAllParams(prefix) {
-    const params = new URLSearchParams();
-    
-    // 主要参数
-    const language = document.getElementById(`${prefix}-language`)?.value;
-    const model = document.getElementById(`${prefix}-model`)?.value;
-    const device = document.getElementById(`${prefix}-device`)?.value;
-    
-    if (language) params.append('language', language);
-    if (model) params.append('model', model);
-    if (device) params.append('device', device);
-    
-    // Whisper模型参数
-    const task = document.getElementById(`${prefix}-task`)?.value;
-    const device_index = document.getElementById(`${prefix}-device_index`)?.value;
-    const threads = document.getElementById(`${prefix}-threads`)?.value;
-    const batch_size = document.getElementById(`${prefix}-batch_size`)?.value;
-    const chunk_size = document.getElementById(`${prefix}-chunk_size`)?.value;
-    const compute_type = document.getElementById(`${prefix}-compute_type`)?.value;
-    
-    if (task) params.append('task', task);
-    if (device_index) params.append('device_index', device_index);
-    if (threads) params.append('threads', threads);
-    if (batch_size) params.append('batch_size', batch_size);
-    if (chunk_size) params.append('chunk_size', chunk_size);
-    if (compute_type) params.append('compute_type', compute_type);
-    
-    // 对齐参数
-    const align_model = document.getElementById(`${prefix}-align_model`)?.value;
-    const interpolate_method = document.getElementById(`${prefix}-interpolate_method`)?.value;
-    const return_char_alignments = document.getElementById(`${prefix}-return_char_alignments`)?.checked;
-    
-    if (align_model) params.append('align_model', align_model);
-    if (interpolate_method) params.append('interpolate_method', interpolate_method);
-    if (return_char_alignments) params.append('return_char_alignments', 'true');
-    
-    // 说话人分离参数
-    const min_speakers = document.getElementById(`${prefix}-min_speakers`)?.value;
-    const max_speakers = document.getElementById(`${prefix}-max_speakers`)?.value;
-    
-    if (min_speakers) params.append('min_speakers', min_speakers);
-    if (max_speakers) params.append('max_speakers', max_speakers);
-    
-    // ASR选项
-    const beam_size = document.getElementById(`${prefix}-beam_size`)?.value;
-    const best_of = document.getElementById(`${prefix}-best_of`)?.value;
-    const patience = document.getElementById(`${prefix}-patience`)?.value;
-    const length_penalty = document.getElementById(`${prefix}-length_penalty`)?.value;
-    const temperatures = document.getElementById(`${prefix}-temperatures`)?.value;
-    const compression_ratio_threshold = document.getElementById(`${prefix}-compression_ratio_threshold`)?.value;
-    const log_prob_threshold = document.getElementById(`${prefix}-log_prob_threshold`)?.value;
-    const no_speech_threshold = document.getElementById(`${prefix}-no_speech_threshold`)?.value;
-    const initial_prompt = document.getElementById(`${prefix}-initial_prompt`)?.value;
-    const suppress_tokens = document.getElementById(`${prefix}-suppress_tokens`)?.value;
-    const suppress_numerals = document.getElementById(`${prefix}-suppress_numerals`)?.checked;
-    const hotwords = document.getElementById(`${prefix}-hotwords`)?.value;
-    
-    if (beam_size) params.append('beam_size', beam_size);
-    if (best_of) params.append('best_of', best_of);
-    if (patience) params.append('patience', patience);
-    if (length_penalty) params.append('length_penalty', length_penalty);
-    if (temperatures) params.append('temperatures', temperatures);
-    if (compression_ratio_threshold) params.append('compression_ratio_threshold', compression_ratio_threshold);
-    if (log_prob_threshold) params.append('log_prob_threshold', log_prob_threshold);
-    if (no_speech_threshold) params.append('no_speech_threshold', no_speech_threshold);
-    if (initial_prompt) params.append('initial_prompt', initial_prompt);
-    if (suppress_tokens) params.append('suppress_tokens', suppress_tokens);
-    if (suppress_numerals) params.append('suppress_numerals', 'true');
-    if (hotwords) params.append('hotwords', hotwords);
-    
-    // VAD选项
-    const vad_onset = document.getElementById(`${prefix}-vad_onset`)?.value;
-    const vad_offset = document.getElementById(`${prefix}-vad_offset`)?.value;
-    
-    if (vad_onset) params.append('vad_onset', vad_onset);
-    if (vad_offset) params.append('vad_offset', vad_offset);
-    
-    return params;
-}
-
 // 轮询任务状态
 async function pollTaskStatus() {
     if (!currentTaskId) return;
 
     try {
         const response = await fetch(`${API_BASE_URL}/task/${currentTaskId}`);
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
         const data = await response.json();
 
-        const taskInfo = document.getElementById('os-taskInfo');
+        const taskInfo = getElement('os-taskInfo');
         if (taskInfo) {
             taskInfo.innerHTML = `
                 <div><strong>${t('taskId')}:</strong> ${currentTaskId}</div>
@@ -325,17 +379,35 @@ async function pollTaskStatus() {
     } catch (error) {
         console.error(t('queryFailed') + ':', error);
         alert(t('queryFailed') + ': ' + error.message);
-        const startProcessBtn = document.getElementById('os-startProcessBtn');
+        const startProcessBtn = getElement('os-startProcessBtn');
         if (startProcessBtn) startProcessBtn.disabled = false;
     }
 }
 
-// 更新进度
-function updateProgress(percent, text) {
-    const progressFill = document.getElementById('os-progressFill');
-    const progressText = document.getElementById('os-progressText');
-    if (progressFill) progressFill.style.width = percent + '%';
-    if (progressText) progressText.textContent = text;
+// ============================================================================
+// 字幕生成和处理函数
+// ============================================================================
+
+// 生成 SRT 字幕
+function generateSRT(segments) {
+    if (!segments || !Array.isArray(segments)) return '';
+    return segments.map((segment, index) => {
+        const start = formatTimeSRT(segment.start);
+        const end = formatTimeSRT(segment.end);
+        return `${index + 1}\n${start} --> ${end}\n${segment.text}\n`;
+    }).join('\n');
+}
+
+// 生成 VTT 字幕
+function generateVTT(segments) {
+    if (!segments || !Array.isArray(segments)) return 'WEBVTT\n\n';
+    const header = 'WEBVTT\n\n';
+    const content = segments.map((segment, index) => {
+        const start = formatTimeVTT(segment.start);
+        const end = formatTimeVTT(segment.end);
+        return `${index + 1}\n${start} --> ${end}\n${segment.text}\n`;
+    }).join('\n');
+    return header + content;
 }
 
 // 中文简繁转换函数（使用 OpenCC 库）
@@ -397,10 +469,15 @@ function simpleConvert(text, conversionType) {
 
 // 处理完成的任务
 async function handleCompletedTask(data) {
+    if (!data || !data.result) {
+        console.error('Invalid task data:', data);
+        return;
+    }
+    
     const result = data.result;
     
     // 应用中文转换
-    const conversionType = document.getElementById('os-chineseConversion')?.value || 'none';
+    const conversionType = getElement('os-chineseConversion')?.value || 'none';
     if (conversionType !== 'none' && result.segments) {
         result.segments = result.segments.map(segment => ({
             ...segment,
@@ -415,13 +492,13 @@ async function handleCompletedTask(data) {
     currentSubtitleData = result;
 
     // 显示结果
-    const resultSection = document.getElementById('os-resultSection');
-    const progressSection = document.getElementById('os-progressSection');
+    const resultSection = getElement('os-resultSection');
+    const progressSection = getElement('os-progressSection');
     if (resultSection) resultSection.style.display = 'block';
     if (progressSection) progressSection.style.display = 'none';
 
     // 生成字幕
-    if (result.segments) {
+    if (result.segments && Array.isArray(result.segments)) {
         const srtContent = generateSRT(result.segments);
         const vttContent = generateVTT(result.segments);
         
@@ -432,10 +509,10 @@ async function handleCompletedTask(data) {
         const srtUrl = URL.createObjectURL(srtBlob);
         const vttUrl = URL.createObjectURL(vttBlob);
         
-        const subtitleTrack = document.getElementById('os-subtitleTrack');
-        const videoPlayer = document.getElementById('os-videoPlayer');
+        const subtitleTrack = getElement('os-subtitleTrack');
+        const videoPlayer = getElement('os-videoPlayer');
         if (subtitleTrack) subtitleTrack.src = vttUrl;
-        if (videoPlayer && videoPlayer.textTracks[0]) {
+        if (videoPlayer && videoPlayer.textTracks && videoPlayer.textTracks[0]) {
             videoPlayer.textTracks[0].mode = 'showing';
         }
 
@@ -451,9 +528,9 @@ async function handleCompletedTask(data) {
         }
 
         // 保存下载链接
-        const osDownloadSrtBtn = document.getElementById('os-downloadSrtBtn');
-        const osDownloadVttBtn = document.getElementById('os-downloadVttBtn');
-        const osDownloadJsonBtn = document.getElementById('os-downloadJsonBtn');
+        const osDownloadSrtBtn = getElement('os-downloadSrtBtn');
+        const osDownloadVttBtn = getElement('os-downloadVttBtn');
+        const osDownloadJsonBtn = getElement('os-downloadJsonBtn');
         
         if (osDownloadSrtBtn) {
             osDownloadSrtBtn.dataset.url = srtUrl;
@@ -469,18 +546,20 @@ async function handleCompletedTask(data) {
         }
 
         // 显示转录文本
-        const transcriptContent = document.getElementById('os-transcriptContent');
+        const transcriptContent = getElement('os-transcriptContent');
         if (transcriptContent) {
             displayTranscript(result.segments, transcriptContent, videoPlayer);
         }
     }
 
-    const startProcessBtn = document.getElementById('os-startProcessBtn');
+    const startProcessBtn = getElement('os-startProcessBtn');
     if (startProcessBtn) startProcessBtn.disabled = false;
 }
 
 // 显示转录文本
 function displayTranscript(segments, transcriptContent, videoPlayer) {
+    if (!segments || !Array.isArray(segments) || !transcriptContent) return;
+    
     transcriptContent.innerHTML = segments.map((segment, index) => {
         const startTime = formatTime(segment.start);
         const endTime = formatTime(segment.end);
@@ -499,7 +578,7 @@ function displayTranscript(segments, transcriptContent, videoPlayer) {
     transcriptContent.querySelectorAll('.transcript-segment').forEach(segment => {
         segment.addEventListener('click', () => {
             const start = parseFloat(segment.dataset.start);
-            if (videoPlayer) {
+            if (videoPlayer && !isNaN(start)) {
                 videoPlayer.currentTime = start;
             }
         });
@@ -507,70 +586,35 @@ function displayTranscript(segments, transcriptContent, videoPlayer) {
 
     // 视频播放时高亮对应文本
     if (videoPlayer) {
-        videoPlayer.addEventListener('timeupdate', () => {
+        // 移除之前的事件监听器（如果存在）
+        videoPlayer.removeEventListener('timeupdate', handleTimeUpdate);
+        
+        // 添加新的事件监听器
+        videoPlayer.addEventListener('timeupdate', handleTimeUpdate);
+        
+        function handleTimeUpdate() {
             const currentTime = videoPlayer.currentTime;
             transcriptContent.querySelectorAll('.transcript-segment').forEach(segment => {
                 const start = parseFloat(segment.dataset.start);
                 const end = parseFloat(segment.dataset.end);
-                if (currentTime >= start && currentTime <= end) {
+                if (!isNaN(start) && !isNaN(end) && currentTime >= start && currentTime <= end) {
                     segment.classList.add('active');
                 } else {
                     segment.classList.remove('active');
                 }
             });
-        });
+        }
     }
 }
 
-// 生成 SRT 字幕
-function generateSRT(segments) {
-    return segments.map((segment, index) => {
-        const start = formatTimeSRT(segment.start);
-        const end = formatTimeSRT(segment.end);
-        return `${index + 1}\n${start} --> ${end}\n${segment.text}\n`;
-    }).join('\n');
-}
-
-// 生成 VTT 字幕
-function generateVTT(segments) {
-    const header = 'WEBVTT\n\n';
-    const content = segments.map((segment, index) => {
-        const start = formatTimeVTT(segment.start);
-        const end = formatTimeVTT(segment.end);
-        return `${index + 1}\n${start} --> ${end}\n${segment.text}\n`;
-    }).join('\n');
-    return header + content;
-}
-
-// 时间格式化
-function formatTime(seconds) {
-    const hours = Math.floor(seconds / 3600);
-    const minutes = Math.floor((seconds % 3600) / 60);
-    const secs = Math.floor(seconds % 60);
-    return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-}
-
-function formatTimeSRT(seconds) {
-    const hours = Math.floor(seconds / 3600);
-    const minutes = Math.floor((seconds % 3600) / 60);
-    const secs = Math.floor(seconds % 60);
-    const millis = Math.floor((seconds % 1) * 1000);
-    return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')},${millis.toString().padStart(3, '0')}`;
-}
-
-function formatTimeVTT(seconds) {
-    const hours = Math.floor(seconds / 3600);
-    const minutes = Math.floor((seconds % 3600) / 60);
-    const secs = Math.floor(seconds % 60);
-    const millis = Math.floor((seconds % 1) * 1000);
-    return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}.${millis.toString().padStart(3, '0')}`;
-}
-
+// ============================================================================
+// 下载相关函数
+// ============================================================================
 
 // 下载字幕
 function downloadSubtitle(format, prefix = '') {
     const btnId = prefix ? `${prefix}-download${format === 'srt' ? 'Srt' : 'Vtt'}Btn` : `download${format === 'srt' ? 'Srt' : 'Vtt'}Btn`;
-    const btn = document.getElementById(btnId);
+    const btn = getElement(btnId);
     if (!btn || !btn.dataset.url) return;
 
     const a = document.createElement('a');
@@ -584,7 +628,7 @@ function downloadSubtitle(format, prefix = '') {
 // 下载 JSON
 function downloadJson(prefix = '') {
     const btnId = prefix ? `${prefix}-downloadJsonBtn` : 'downloadJsonBtn';
-    const btn = document.getElementById(btnId);
+    const btn = getElement(btnId);
     if (!btn || !btn.dataset.data) return;
 
     const blob = new Blob([btn.dataset.data], { type: 'application/json;charset=utf-8' });
@@ -598,3 +642,64 @@ function downloadJson(prefix = '') {
     URL.revokeObjectURL(url);
 }
 
+// ============================================================================
+// 初始化函数
+// ============================================================================
+
+// 初始化事件监听器
+function initEventListeners() {
+    // 文件上传区域
+    const uploadArea = getElement('uploadArea');
+    const fileInput = getElement('fileInput');
+    
+    if (uploadArea && fileInput) {
+        uploadArea.addEventListener('click', () => fileInput.click());
+        uploadArea.addEventListener('dragover', handleDragOver);
+        uploadArea.addEventListener('dragleave', handleDragLeave);
+        uploadArea.addEventListener('drop', handleDrop);
+        fileInput.addEventListener('change', handleFileSelect);
+    }
+    
+    // 开始处理按钮
+    const startProcessBtn = getElement('os-startProcessBtn');
+    if (startProcessBtn) {
+        startProcessBtn.addEventListener('click', startProcessing);
+    }
+    
+    // 下载按钮
+    const osDownloadSrtBtn = getElement('os-downloadSrtBtn');
+    const osDownloadVttBtn = getElement('os-downloadVttBtn');
+    const osDownloadJsonBtn = getElement('os-downloadJsonBtn');
+    
+    if (osDownloadSrtBtn) {
+        osDownloadSrtBtn.addEventListener('click', () => downloadSubtitle('srt', 'os'));
+    }
+    if (osDownloadVttBtn) {
+        osDownloadVttBtn.addEventListener('click', () => downloadSubtitle('vtt', 'os'));
+    }
+    if (osDownloadJsonBtn) {
+        osDownloadJsonBtn.addEventListener('click', () => downloadJson('os'));
+    }
+    
+    // 语言切换
+    const languageSelector = getElement('languageSelector');
+    if (languageSelector) {
+        languageSelector.addEventListener('change', (e) => {
+            if (window.switchLanguage) {
+                window.switchLanguage(e.target.value);
+            }
+        });
+    }
+}
+
+// ============================================================================
+// DOM 加载完成后初始化
+// ============================================================================
+
+// 等待 DOM 加载完成后再初始化
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initEventListeners);
+} else {
+    // DOM 已经加载完成
+    initEventListeners();
+}
