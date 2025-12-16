@@ -48,18 +48,11 @@ COPY patch_diarize.py /tmp/
 # pyannote.audio compatibility: force upgrade to 4.0.1+ which removes AudioMetaData dependency
 RUN uv pip install --system -e . \
     && uv pip install --system ctranslate2==4.6.0 \
-    && echo "Installing gunicorn and uvicorn using system pip3 to ensure they're in system Python..." \
     && pip3 install --no-cache-dir "gunicorn==23.0.0" "uvicorn==0.38.0" \
-    && echo "Verifying gunicorn and uvicorn installation..." \
-    && python3 -c "import gunicorn; import uvicorn; print(f'gunicorn: {gunicorn.__version__}, uvicorn: {uvicorn.__version__}')" \
-    && python3 -m gunicorn --version || echo "Warning: python3 -m gunicorn --version failed" \
-    && echo "Creating gunicorn wrapper script early..." \
     && printf '#!/bin/sh\nexec python3 -m gunicorn "$@"\n' > /usr/local/bin/gunicorn \
     && chmod +x /usr/local/bin/gunicorn \
-    && /usr/local/bin/gunicorn --version || echo "Warning: gunicorn wrapper failed at early stage" \
     && echo "Installing PyTorch nightly builds for latest GPU support (including RTX 5090 sm_120)..." \
     && uv pip uninstall --system -y torch torchvision torchaudio || true \
-    && echo "Installing all PyTorch packages from nightly to ensure version compatibility..." \
     && uv pip install --system --pre --no-cache-dir --force-reinstall torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cu128 \
     && echo "Applying torchvision compatibility patch..." \
     && python3 -c "import torch; exec('try:\n    @torch.library.register_fake(\"torchvision::nms\")\n    def nms_fake(boxes, scores, iou_threshold):\n        return torch.tensor([], dtype=torch.long)\nexcept Exception as e:\n    print(f\"Patch failed: {e}\")\n    pass')" || true \
@@ -69,7 +62,6 @@ RUN uv pip install --system -e . \
     && uv pip install --system --upgrade --force-reinstall --no-cache-dir "numpy>=2.3" "pyannote.audio>=4.0.1" \
     && echo "Patching whisperx to use 'token' instead of 'use_auth_token' for pyannote.audio>=4.0.1..." \
     && python3 /tmp/patch_whisperx.py 2>&1 || echo "Warning: patch script had errors, continuing..." \
-    && echo "Applying additional sed patches as backup..." \
     && find /usr/local/lib/python3.*/dist-packages/whisperx -name "*.py" -type f -exec sed -i 's/\buse_auth_token\b/token/g' {} \; 2>/dev/null || true \
     && find /usr/local/lib/python3.*/site-packages/whisperx -name "*.py" -type f -exec sed -i 's/\buse_auth_token\b/token/g' {} \; 2>/dev/null || true \
     && echo "Patching whisperx diarize.py for pyannote.audio>=4.0.1 DiarizeOutput API compatibility..." \
@@ -77,13 +69,7 @@ RUN uv pip install --system -e . \
     && rm -f /tmp/patch_diarize.py \
     && rm -f /tmp/patch_whisperx.py \
     && echo "Fixing huggingface-hub version compatibility..." \
-    && uv pip install --system --no-cache-dir "huggingface-hub>=0.34.0,<1.0" \
-    && echo "Final verification of critical packages..." \
-    && python3 -c "import gunicorn; import uvicorn; import pydantic; import pydantic_settings; print(f'✓ All packages available: gunicorn={gunicorn.__version__}, uvicorn={uvicorn.__version__}, pydantic={pydantic.__version__}, pydantic_settings={pydantic_settings.__version__}')" \
-    && echo "Verifying gunicorn wrapper script..." \
-    && test -f /usr/local/bin/gunicorn || (echo "ERROR: gunicorn wrapper script not found!" && exit 1) \
-    && /usr/local/bin/gunicorn --version || (echo "ERROR: gunicorn wrapper failed!" && cat /usr/local/bin/gunicorn && exit 1) \
-    && echo "✓ All verifications passed successfully"
+    && uv pip install --system --no-cache-dir "huggingface-hub>=0.34.0,<1.0"
 
 EXPOSE 8000
 
