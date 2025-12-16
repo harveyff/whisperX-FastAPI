@@ -480,7 +480,7 @@ async function handleCompletedTask(data) {
 }
 
 // 显示转录文本
-function displayTranscript(segments) {
+function displayTranscript(segments, transcriptContent, videoPlayer) {
     transcriptContent.innerHTML = segments.map((segment, index) => {
         const startTime = formatTime(segment.start);
         const endTime = formatTime(segment.end);
@@ -499,23 +499,27 @@ function displayTranscript(segments) {
     transcriptContent.querySelectorAll('.transcript-segment').forEach(segment => {
         segment.addEventListener('click', () => {
             const start = parseFloat(segment.dataset.start);
-            videoPlayer.currentTime = start;
+            if (videoPlayer) {
+                videoPlayer.currentTime = start;
+            }
         });
     });
 
     // 视频播放时高亮对应文本
-    videoPlayer.addEventListener('timeupdate', () => {
-        const currentTime = videoPlayer.currentTime;
-        transcriptContent.querySelectorAll('.transcript-segment').forEach(segment => {
-            const start = parseFloat(segment.dataset.start);
-            const end = parseFloat(segment.dataset.end);
-            if (currentTime >= start && currentTime <= end) {
-                segment.classList.add('active');
-            } else {
-                segment.classList.remove('active');
-            }
+    if (videoPlayer) {
+        videoPlayer.addEventListener('timeupdate', () => {
+            const currentTime = videoPlayer.currentTime;
+            transcriptContent.querySelectorAll('.transcript-segment').forEach(segment => {
+                const start = parseFloat(segment.dataset.start);
+                const end = parseFloat(segment.dataset.end);
+                if (currentTime >= start && currentTime <= end) {
+                    segment.classList.add('active');
+                } else {
+                    segment.classList.remove('active');
+                }
+            });
         });
-    });
+    }
 }
 
 // 生成 SRT 字幕
@@ -562,11 +566,6 @@ function formatTimeVTT(seconds) {
     return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}.${millis.toString().padStart(3, '0')}`;
 }
 
-// 更新进度
-function updateProgress(percent, text) {
-    progressFill.style.width = percent + '%';
-    progressText.textContent = text;
-}
 
 // 下载字幕
 function downloadSubtitle(format, prefix = '') {
