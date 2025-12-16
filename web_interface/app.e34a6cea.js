@@ -914,3 +914,4 @@ if (document.readyState === 'loading') {
     console.log('[App.js] DOM 已加载完成，立即初始化');
     initializeApp();
 }
+
