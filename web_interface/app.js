@@ -1,4 +1,21 @@
 // ============================================================================
+// 文件版本标识 - 用于确认浏览器加载的是最新版本
+// ============================================================================
+const APP_JS_VERSION = '2.0.1-' + Date.now();
+console.log('========================================');
+console.log('[App.js] 文件已加载，版本:', APP_JS_VERSION);
+console.log('[App.js] 加载时间:', new Date().toLocaleString());
+console.log('[App.js] 文件大小检查: 如果看到这条消息，说明文件已正确加载');
+console.log('========================================');
+
+// 语法检查：如果这行代码能执行，说明前面的代码没有语法错误
+try {
+    console.log('[App.js] 语法检查通过');
+} catch (e) {
+    console.error('[App.js] 语法错误:', e);
+}
+
+// ============================================================================
 // API 基础配置
 // ============================================================================
 const API_BASE_URL = 'http://localhost:8000';
@@ -97,10 +114,14 @@ function handleFile(file) {
 
 // 处理视频预览
 function handleVideoPreview(file) {
+    console.log('[handleVideoPreview] 函数被调用，文件类型:', file?.type);
     const videoPlayer = getElement('os-videoPlayer');
     const videoSource = getElement('os-videoSource');
     
-    if (!videoPlayer || !videoSource) return;
+    if (!videoPlayer || !videoSource) {
+        console.log('[handleVideoPreview] 视频元素未找到');
+        return;
+    }
     
     const videoContainer = videoPlayer.closest('.video-player-container');
     
@@ -697,9 +718,17 @@ function initEventListeners() {
 // ============================================================================
 
 // 等待 DOM 加载完成后再初始化
+console.log('[App.js] 准备初始化事件监听器，DOM状态:', document.readyState);
 if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', initEventListeners);
+    console.log('[App.js] DOM 正在加载，等待 DOMContentLoaded 事件');
+    document.addEventListener('DOMContentLoaded', () => {
+        console.log('[App.js] DOMContentLoaded 事件触发，开始初始化');
+        initEventListeners();
+        console.log('[App.js] 事件监听器初始化完成');
+    });
 } else {
     // DOM 已经加载完成
+    console.log('[App.js] DOM 已加载完成，立即初始化');
     initEventListeners();
+    console.log('[App.js] 事件监听器初始化完成');
 }
