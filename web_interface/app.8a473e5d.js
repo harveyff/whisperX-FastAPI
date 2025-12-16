@@ -3,8 +3,8 @@
 // ============================================================================
 // 每次修改文件时更新这个hash值，确保浏览器加载最新版本
 // Hash值基于文件关键内容生成，每次修改后更新
-const APP_JS_HASH = 'v2.0.4-fixed-stack-overflow-throttle'; // 文件内容hash标识
-const APP_JS_VERSION = '2.0.4-' + Date.now();
+const APP_JS_HASH = 'v2.0.5-comprehensive-fixes'; // 文件内容hash标识
+const APP_JS_VERSION = '2.0.5-' + Date.now();
 const APP_JS_BUILD_TIME = new Date().toISOString();
 
 console.log('========================================');
@@ -13,7 +13,7 @@ console.log('[App.js] 版本:', APP_JS_VERSION);
 console.log('[App.js] Hash标识:', APP_JS_HASH);
 console.log('[App.js] 构建时间:', APP_JS_BUILD_TIME);
 console.log('[App.js] 加载时间:', new Date().toLocaleString());
-console.log('[App.js] 如果Hash标识不是 v2.0.4-fixed-stack-overflow-throttle，说明文件未更新');
+console.log('[App.js] 如果Hash标识不是 v2.0.5-comprehensive-fixes，说明文件未更新');
 console.log('========================================');
 
 // 语法检查：如果这行代码能执行，说明前面的代码没有语法错误
@@ -56,6 +56,8 @@ let currentTaskId = null;
 let currentFile = null;
 let currentVideoUrl = null;
 let currentSubtitleData = null;
+let isProcessing = false; // 防止重复提交
+let videoLoadTimeout = null; // 视频加载超时
 
 // ============================================================================
 // 工具函数
@@ -116,39 +118,105 @@ function handleFileSelect(e) {
 
 // 处理文件
 function handleFile(file) {
-    if (!file) return;
-    
-    currentFile = file;
-    
-    // 更新上传区域显示
-    const uploadArea = getElement('uploadArea');
-    if (uploadArea) {
-        uploadArea.innerHTML = `
-            <div class="upload-content">
-                <p>${t('fileSelected')}: ${file.name}</p>
-                <p class="file-hint">${t('fileSize')}: ${(file.size / 1024 / 1024).toFixed(2)} MB</p>
-            </div>
-        `;
+    if (!file) {
+        console.warn('[handleFile] 文件对象为空');
+        return;
     }
     
-    // 显示配置区域
-    const configSection = getElement('os-configSection');
-    if (configSection) {
-        configSection.style.display = 'block';
+    console.log('[handleFile] 处理文件:', file.name, '大小:', (file.size / 1024 / 1024).toFixed(2), 'MB', '类型:', file.type);
+    
+    try {
+        currentFile = file;
+        
+        // 更新上传区域显示
+        const uploadArea = getElement('uploadArea');
+        if (uploadArea) {
+            uploadArea.innerHTML = `
+                <div class="upload-content">
+                    <p>${t('fileSelected')}: ${file.name}</p>
+                    <p class="file-hint">${t('fileSize')}: ${(file.size / 1024 / 1024).toFixed(2)} MB</p>
+                </div>
+            `;
+        }
+        
+        // 显示配置区域
+        const configSection = getElement('os-configSection');
+        if (configSection) {
+            configSection.style.display = 'block';
+        }
+        
+        // 处理视频预览（异步，避免阻塞）
+        setTimeout(() => {
+            try {
+                handleVideoPreview(file);
+            } catch (e) {
+                console.error('[handleFile] 视频预览处理失败:', e);
+                // 预览失败不影响文件上传
+            }
+        }, 50);
+    } catch (error) {
+        console.error('[handleFile] 处理文件时出错:', error);
+        alert('处理文件时出错: ' + error.message);
+    }
+}
+
+// 清理视频资源
+function cleanupVideoResources() {
+    const videoPlayer = getElement('os-videoPlayer');
+    
+    // 清理超时
+    if (videoLoadTimeout) {
+        clearTimeout(videoLoadTimeout);
+        videoLoadTimeout = null;
     }
     
-    // 处理视频预览
-    handleVideoPreview(file);
+    // 移除事件监听器
+    if (videoPlayer && currentTimeUpdateHandler) {
+        try {
+            videoPlayer.removeEventListener('timeupdate', currentTimeUpdateHandler);
+            currentTimeUpdateHandler = null;
+        } catch (e) {
+            console.warn('[cleanupVideoResources] 移除监听器失败:', e);
+        }
+    }
+    
+    // 清理视频元素
+    if (videoPlayer) {
+        try {
+            videoPlayer.pause();
+            videoPlayer.src = '';
+            videoPlayer.srcObject = null;
+            videoPlayer.load(); // 重置视频元素
+        } catch (e) {
+            console.warn('[cleanupVideoResources] 清理视频元素失败:', e);
+        }
+    }
+    
+    // 清理URL
+    if (currentVideoUrl) {
+        try {
+            URL.revokeObjectURL(currentVideoUrl);
+        } catch (e) {
+            console.warn('[cleanupVideoResources] 清理URL失败:', e);
+        }
+        currentVideoUrl = null;
+    }
 }
 
 // 处理视频预览
 function handleVideoPreview(file) {
-    console.log('[handleVideoPreview] 函数被调用，文件类型:', file?.type);
+    console.log('[handleVideoPreview] 函数被调用，文件类型:', file?.type, '文件大小:', file?.size ? (file.size / 1024 / 1024).toFixed(2) + ' MB' : 'unknown');
+    
+    if (!file) {
+        console.warn('[handleVideoPreview] 文件对象为空');
+        return;
+    }
+    
     const videoPlayer = getElement('os-videoPlayer');
     const videoSource = getElement('os-videoSource');
     
     if (!videoPlayer || !videoSource) {
-        console.log('[handleVideoPreview] 视频元素未找到');
+        console.log('[handleVideoPreview] 视频元素未找到，跳过预览');
         return;
     }
     
@@ -157,28 +225,51 @@ function handleVideoPreview(file) {
     if (file.type && file.type.startsWith('video/')) {
         // 如果是视频文件，创建预览
         try {
-            // 清理之前的 URL
-            if (currentVideoUrl) {
-                URL.revokeObjectURL(currentVideoUrl);
-            }
+            // 先清理之前的资源
+            cleanupVideoResources();
             
+            // 创建新的对象URL
             const url = URL.createObjectURL(file);
             currentVideoUrl = url;
+            
+            // 设置视频源
             videoSource.src = url;
-            videoPlayer.load();
             
             // 显示视频播放器
             if (videoContainer) {
                 videoContainer.style.display = 'block';
             }
+            
+            // 异步加载视频，避免阻塞，并设置超时
+            videoLoadTimeout = setTimeout(() => {
+                try {
+                    videoPlayer.load();
+                    console.log('[handleVideoPreview] 视频加载完成');
+                    
+                    // 监听加载错误
+                    const errorHandler = () => {
+                        console.warn('[handleVideoPreview] 视频加载错误，可能是格式不支持');
+                        videoPlayer.removeEventListener('error', errorHandler);
+                    };
+                    videoPlayer.addEventListener('error', errorHandler, { once: true });
+                } catch (e) {
+                    console.error('[handleVideoPreview] 视频加载失败:', e);
+                }
+                videoLoadTimeout = null;
+            }, 100);
+            
         } catch (error) {
-            console.error('Failed to create video preview:', error);
+            console.error('[handleVideoPreview] 创建视频预览失败:', error);
+            // 即使预览失败，也不影响文件上传
+            cleanupVideoResources();
         }
     } else {
         // 隐藏视频播放器（如果是音频文件）
         if (videoContainer) {
             videoContainer.style.display = 'none';
         }
+        // 清理视频资源
+        cleanupVideoResources();
     }
 }
 
@@ -324,6 +415,12 @@ function collectAllParams(prefix) {
 
 // 开始处理
 async function startProcessing() {
+    // 防止重复提交
+    if (isProcessing) {
+        console.warn('[startProcessing] 正在处理中，忽略重复请求');
+        return;
+    }
+    
     // 检查上传类型
     const uploadType = document.querySelector('input[name="uploadType"]:checked')?.value || 'file';
     const urlInput = getElement('urlInput');
@@ -340,6 +437,17 @@ async function startProcessing() {
         alert(t('enterYouTubeUrl'));
         return;
     }
+    
+    // 检查文件大小（可选，如果文件太大可以提示）
+    if (uploadType === 'file' && currentFile) {
+        const fileSizeMB = currentFile.size / 1024 / 1024;
+        console.log('[startProcessing] 文件大小:', fileSizeMB.toFixed(2), 'MB');
+        if (fileSizeMB > 500) {
+            if (!confirm(`文件较大 (${fileSizeMB.toFixed(2)} MB)，上传可能需要较长时间，是否继续？`)) {
+                return;
+            }
+        }
+    }
 
     // 更新UI状态
     const startProcessBtn = getElement('os-startProcessBtn');
@@ -347,6 +455,7 @@ async function startProcessing() {
     const progressSection = getElement('os-progressSection');
     const resultSection = getElement('os-resultSection');
     
+    isProcessing = true;
     if (startProcessBtn) startProcessBtn.disabled = true;
     if (configSection) configSection.style.display = 'none';
     if (progressSection) progressSection.style.display = 'block';
@@ -359,39 +468,58 @@ async function startProcessing() {
         updateProgress(10, t('uploading'));
         
         let response;
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 600000); // 10分钟超时
         
-        if (uploadType === 'youtube') {
-            // 使用YouTube接口
-            const formData = new FormData();
-            formData.append('youtube_url', youtubeInput.value.trim());
+        try {
+            if (uploadType === 'youtube') {
+                // 使用YouTube接口
+                const formData = new FormData();
+                formData.append('youtube_url', youtubeInput.value.trim());
+                
+                response = await fetch(`${API_BASE_URL}/service/youtube-transcribe?${params}`, {
+                    method: 'POST',
+                    body: formData,
+                    signal: controller.signal
+                });
+            } else if (uploadType === 'url') {
+                // 使用URL接口
+                const formData = new FormData();
+                formData.append('url', urlInput.value.trim());
+                
+                response = await fetch(`${API_BASE_URL}/speech-to-text-url?${params}`, {
+                    method: 'POST',
+                    body: formData,
+                    signal: controller.signal
+                });
+            } else {
+                // 使用文件上传接口
+                const formData = new FormData();
+                formData.append('file', currentFile);
+                
+                console.log('[startProcessing] 开始上传文件，大小:', (currentFile.size / 1024 / 1024).toFixed(2), 'MB');
+                
+                response = await fetch(`${API_BASE_URL}/speech-to-text?${params}`, {
+                    method: 'POST',
+                    body: formData,
+                    signal: controller.signal
+                });
+            }
             
-            response = await fetch(`${API_BASE_URL}/service/youtube-transcribe?${params}`, {
-                method: 'POST',
-                body: formData
-            });
-        } else if (uploadType === 'url') {
-            // 使用URL接口
-            const formData = new FormData();
-            formData.append('url', urlInput.value.trim());
-            
-            response = await fetch(`${API_BASE_URL}/speech-to-text-url?${params}`, {
-                method: 'POST',
-                body: formData
-            });
-        } else {
-            // 使用文件上传接口
-            const formData = new FormData();
-            formData.append('file', currentFile);
-            
-            response = await fetch(`${API_BASE_URL}/speech-to-text?${params}`, {
-                method: 'POST',
-                body: formData
-            });
+            clearTimeout(timeoutId);
+        } catch (fetchError) {
+            clearTimeout(timeoutId);
+            if (fetchError.name === 'AbortError') {
+                throw new Error('上传超时，请检查网络连接或文件大小');
+            }
+            throw fetchError;
         }
 
         if (!response.ok) {
             const errorData = await response.json().catch(() => ({}));
-            throw new Error(errorData.detail || errorData.message || `${t('processingFailed')}: ${response.statusText}`);
+            const errorMessage = errorData.detail || errorData.message || `${t('processingFailed')}: ${response.statusText}`;
+            console.error('[startProcessing] 服务器错误:', response.status, errorMessage);
+            throw new Error(errorMessage);
         }
 
         const data = await response.json();
@@ -406,7 +534,8 @@ async function startProcessing() {
         // 开始轮询任务状态
         pollTaskStatus();
     } catch (error) {
-        console.error(t('processingFailed') + ':', error);
+        console.error('[startProcessing] 处理失败:', error);
+        isProcessing = false;
         alert(t('processingFailed') + ': ' + error.message);
         if (startProcessBtn) startProcessBtn.disabled = false;
         if (progressSection) progressSection.style.display = 'none';
@@ -445,7 +574,8 @@ async function pollTaskStatus() {
             throw new Error(data.error || t('processingFailed'));
         }
     } catch (error) {
-        console.error(t('queryFailed') + ':', error);
+        console.error('[pollTaskStatus] 查询失败:', error);
+        isProcessing = false;
         alert(t('queryFailed') + ': ' + error.message);
         const startProcessBtn = getElement('os-startProcessBtn');
         if (startProcessBtn) startProcessBtn.disabled = false;
@@ -538,22 +668,16 @@ function simpleConvert(text, conversionType) {
 // 处理完成的任务
 async function handleCompletedTask(data) {
     if (!data || !data.result) {
-        console.error('Invalid task data:', data);
+        console.error('[handleCompletedTask] Invalid task data:', data);
+        isProcessing = false;
         return;
     }
     
+    // 重置处理状态
+    isProcessing = false;
+    
     // 先清理之前的监听器和状态
-    if (currentTimeUpdateHandler) {
-        const videoPlayer = getElement('os-videoPlayer');
-        if (videoPlayer) {
-            try {
-                videoPlayer.removeEventListener('timeupdate', currentTimeUpdateHandler);
-            } catch (e) {
-                console.warn('[handleCompletedTask] 清理旧监听器时出错:', e);
-            }
-        }
-        currentTimeUpdateHandler = null;
-    }
+    cleanupVideoResources();
     
     // 重置转录显示标志，允许重新显示
     transcriptDisplayed = false;
@@ -638,7 +762,12 @@ async function handleCompletedTask(data) {
     }
 
     const startProcessBtn = getElement('os-startProcessBtn');
-    if (startProcessBtn) startProcessBtn.disabled = false;
+    if (startProcessBtn) {
+        startProcessBtn.disabled = false;
+    }
+    
+    // 确保处理状态已重置
+    isProcessing = false;
 }
 
 // 视频时间更新处理函数（全局变量，用于正确移除事件监听器）
