@@ -72,9 +72,9 @@ RUN uv pip install --system -e . \
     && echo "Fixing huggingface-hub version compatibility..." \
     && uv pip install --system --no-cache-dir "huggingface-hub>=0.34.0,<1.0" \
     && echo "Reinstalling critical runtime packages to ensure they're available after all operations..." \
-    && pip3 install --no-cache-dir --force-reinstall "gunicorn==23.0.0" "uvicorn==0.38.0" "fastapi==0.117.1" "pydantic>=2.0.0" "pydantic-settings>=2.0.0" \
+    && pip3 install --no-cache-dir --force-reinstall "gunicorn==23.0.0" "uvicorn==0.38.0" "fastapi==0.117.1" "pydantic>=2.0.0" "pydantic-settings>=2.0.0" "whisperx==3.7.2" \
     && echo "Final verification: ensuring critical packages are available..." \
-    && (python3 -c "import gunicorn; import uvicorn; import fastapi; import pydantic; import pydantic_settings; print('✓ All critical packages available')" || echo "Warning: Some packages may not be available, but continuing...") \
+    && (python3 -c "import gunicorn; import uvicorn; import fastapi; import pydantic; import pydantic_settings; import whisperx; print('✓ All critical packages available')" || echo "Warning: Some packages may not be available, but continuing...") \
     && echo "✓ Build completed successfully"
 
 EXPOSE 8000
