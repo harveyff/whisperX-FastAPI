@@ -89,15 +89,38 @@ function handleFile(file) {
             <p class="file-hint">${t('fileSize')}: ${(file.size / 1024 / 1024).toFixed(2)} MB</p>
         </div>
     `;
-    configSection.style.display = 'block';
-}
+    
+    // 显示配置区域
+    const configSection = document.getElementById('os-configSection');
+    if (configSection) {
+        configSection.style.display = 'block';
+    }
     
     // 如果是视频文件，创建预览
     if (file.type.startsWith('video/')) {
-        const url = URL.createObjectURL(file);
-        currentVideoUrl = url;
-        videoSource.src = url;
-        videoPlayer.load();
+        const videoPlayer = document.getElementById('os-videoPlayer');
+        const videoSource = document.getElementById('os-videoSource');
+        if (videoPlayer && videoSource) {
+            const url = URL.createObjectURL(file);
+            currentVideoUrl = url;
+            videoSource.src = url;
+            videoPlayer.load();
+            
+            // 显示视频播放器
+            const videoContainer = videoPlayer.closest('.video-player-container');
+            if (videoContainer) {
+                videoContainer.style.display = 'block';
+            }
+        }
+    } else {
+        // 隐藏视频播放器（如果是音频文件）
+        const videoPlayer = document.getElementById('os-videoPlayer');
+        if (videoPlayer) {
+            const videoContainer = videoPlayer.closest('.video-player-container');
+            if (videoContainer) {
+                videoContainer.style.display = 'none';
+            }
+        }
     }
 }
 
