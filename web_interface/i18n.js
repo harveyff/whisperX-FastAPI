@@ -288,10 +288,14 @@ function applyLanguage() {
     });
     
     // 更新所有带 data-i18n-placeholder 属性的 placeholder
+    // 使用setAttribute确保更新生效，即使元素是动态创建的
     document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
         const key = el.getAttribute('data-i18n-placeholder');
         if (lang[key]) {
-            el.placeholder = lang[key];
+            el.setAttribute('placeholder', lang[key]);
+            el.placeholder = lang[key]; // 双重设置确保更新
+        } else {
+            console.warn(`[i18n] 缺少翻译键: ${key}`);
         }
     });
     
