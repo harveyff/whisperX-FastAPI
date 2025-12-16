@@ -48,9 +48,10 @@ COPY patch_diarize.py /tmp/
 # pyannote.audio compatibility: force upgrade to 4.0.1+ which removes AudioMetaData dependency
 RUN uv pip install --system -e . \
     && uv pip install --system ctranslate2==4.6.0 \
-    && pip3 install --no-cache-dir "gunicorn==23.0.0" "uvicorn==0.38.0" \
-    && printf '#!/bin/sh\nexec python3 -m gunicorn "$@"\n' > /usr/local/bin/gunicorn \
-    && chmod +x /usr/local/bin/gunicorn \
+    && echo "Explicitly installing gunicorn and uvicorn with pip3 to ensure they're in system Python..." \
+    && pip3 install --no-cache-dir --force-reinstall "gunicorn==23.0.0" "uvicorn==0.38.0" \
+    && echo "Verifying gunicorn installation..." \
+    && python3 -c "import gunicorn; print(f'✓ gunicorn={gunicorn.__version__}')" || (echo "ERROR: gunicorn still not found!" && python3 -c "import sys; print('Python paths:', sys.path)" && exit 1) \
     && echo "Installing PyTorch nightly builds for latest GPU support (including RTX 5090 sm_120)..." \
     && uv pip uninstall --system -y torch torchvision torchaudio || true \
     && uv pip install --system --pre --no-cache-dir --force-reinstall torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cu128 \
@@ -69,7 +70,9 @@ RUN uv pip install --system -e . \
     && rm -f /tmp/patch_diarize.py \
     && rm -f /tmp/patch_whisperx.py \
     && echo "Fixing huggingface-hub version compatibility..." \
-    && uv pip install --system --no-cache-dir "huggingface-hub>=0.34.0,<1.0"
+    && uv pip install --system --no-cache-dir "huggingface-hub>=0.34.0,<1.0" \
+    && echo "Final verification: ensuring gunicorn is available..." \
+    && python3 -c "import gunicorn; print(f'✓ Final check: gunicorn={gunicorn.__version__}')" || (echo "ERROR: gunicorn still not found! Installing with pip3..." && pip3 install --no-cache-dir --force-reinstall "gunicorn==23.0.0" && python3 -c "import gunicorn; print(f'✓ gunicorn={gunicorn.__version__}')")
 
 EXPOSE 8000
 
