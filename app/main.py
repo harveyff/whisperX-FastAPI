@@ -17,10 +17,27 @@ try:
             """Compatibility function for list_audio_backends."""
             try:
                 if hasattr(torchaudio, 'backend') and hasattr(torchaudio.backend, 'list_audio_backends'):
-                    return torchaudio.backend.list_audio_backends()
-                return []
+                    backends = torchaudio.backend.list_audio_backends()
+                    if backends:
+                        return backends
             except Exception:
-                return []
+                pass
+            # Fallback: return default backends that pyannote.audio expects
+            available_backends = []
+            try:
+                import soundfile
+                available_backends.append("soundfile")
+            except ImportError:
+                pass
+            try:
+                import sox
+                available_backends.append("sox")
+            except ImportError:
+                pass
+            # Always include soundfile as fallback (it's the most common)
+            if not available_backends:
+                available_backends = ["soundfile"]
+            return available_backends
         torchaudio.list_audio_backends = list_audio_backends
 except ImportError:
     pass
