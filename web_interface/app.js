@@ -18,7 +18,28 @@ try {
 // ============================================================================
 // API 基础配置
 // ============================================================================
-const API_BASE_URL = 'http://localhost:8000';
+// 从当前host获取API基础URL
+const API_BASE_URL = (() => {
+    const protocol = window.location.protocol;
+    const hostname = window.location.hostname;
+    const port = window.location.port;
+    
+    // 如果当前端口是80或443（HTTP/HTTPS默认端口），或者没有端口，尝试使用8000
+    // 否则使用相同端口（假设前后端在同一服务器）
+    let apiPort = port;
+    if (!port || port === '80' || port === '443') {
+        apiPort = '8000';
+    }
+    
+    // 如果是localhost或127.0.0.1，使用8000端口
+    if (hostname === 'localhost' || hostname === '127.0.0.1') {
+        apiPort = '8000';
+    }
+    
+    return `${protocol}//${hostname}:${apiPort}`;
+})();
+console.log('[App.js] API_BASE_URL:', API_BASE_URL);
+console.log('[App.js] 当前页面URL:', window.location.href);
 
 // ============================================================================
 // 全局状态变量
@@ -192,82 +213,100 @@ function handleDrop(e) {
 
 // 收集所有参数
 function collectAllParams(prefix) {
+    console.log('[collectAllParams] 开始收集参数，前缀:', prefix);
     const params = new URLSearchParams();
     
-    // 主要参数
-    const language = getElement(`${prefix}-language`)?.value;
-    const model = getElement(`${prefix}-model`)?.value;
-    const device = getElement(`${prefix}-device`)?.value;
+    // 辅助函数：安全获取值
+    const getValue = (id, defaultValue = null) => {
+        const element = getElement(id);
+        if (!element) {
+            console.warn(`[collectAllParams] 元素未找到: ${id}`);
+            return defaultValue;
+        }
+        // 对于 input 元素，即使 value 是空字符串或 "0"，也应该返回实际值
+        // 只有当元素不存在时才返回 defaultValue
+        const value = element.value !== undefined ? element.value : defaultValue;
+        console.log(`[collectAllParams] ${id}:`, value, '(元素存在:', !!element, ', 类型:', element.type || element.tagName, ')');
+        return value;
+    };
     
-    if (language) params.append('language', language);
-    if (model) params.append('model', model);
-    if (device) params.append('device', device);
+    // 主要参数
+    const language = getValue(`${prefix}-language`);
+    const model = getValue(`${prefix}-model`);
+    const device = getValue(`${prefix}-device`);
+    
+    if (language !== null && language !== '') params.append('language', language);
+    if (model !== null && model !== '') params.append('model', model);
+    if (device !== null && device !== '') params.append('device', device);
     
     // Whisper模型参数
-    const task = getElement(`${prefix}-task`)?.value;
-    const device_index = getElement(`${prefix}-device_index`)?.value;
-    const threads = getElement(`${prefix}-threads`)?.value;
-    const batch_size = getElement(`${prefix}-batch_size`)?.value;
-    const chunk_size = getElement(`${prefix}-chunk_size`)?.value;
-    const compute_type = getElement(`${prefix}-compute_type`)?.value;
+    const task = getValue(`${prefix}-task`);
+    const device_index = getValue(`${prefix}-device_index`);
+    const threads = getValue(`${prefix}-threads`);
+    const batch_size = getValue(`${prefix}-batch_size`);
+    const chunk_size = getValue(`${prefix}-chunk_size`);
+    const compute_type = getValue(`${prefix}-compute_type`);
     
-    if (task) params.append('task', task);
-    if (device_index) params.append('device_index', device_index);
-    if (threads) params.append('threads', threads);
-    if (batch_size) params.append('batch_size', batch_size);
-    if (chunk_size) params.append('chunk_size', chunk_size);
-    if (compute_type) params.append('compute_type', compute_type);
+    // 对于这些参数，即使值是 "0" 或空字符串，也应该发送（让后端决定是否使用默认值）
+    if (task !== null && task !== '') params.append('task', task);
+    // 对于数字类型，即使值是 "0" 也要发送（使用实际值或默认值）
+    if (device_index !== null) params.append('device_index', device_index || '0');
+    if (threads !== null) params.append('threads', threads || '0');
+    if (batch_size !== null) params.append('batch_size', batch_size || '8');
+    if (chunk_size !== null) params.append('chunk_size', chunk_size || '20');
+    if (compute_type !== null && compute_type !== '') params.append('compute_type', compute_type);
     
     // 对齐参数
-    const align_model = getElement(`${prefix}-align_model`)?.value;
-    const interpolate_method = getElement(`${prefix}-interpolate_method`)?.value;
+    const align_model = getValue(`${prefix}-align_model`);
+    const interpolate_method = getValue(`${prefix}-interpolate_method`);
     const return_char_alignments = getElement(`${prefix}-return_char_alignments`)?.checked;
     
-    if (align_model) params.append('align_model', align_model);
-    if (interpolate_method) params.append('interpolate_method', interpolate_method);
+    if (align_model !== null && align_model !== '') params.append('align_model', align_model);
+    if (interpolate_method !== null && interpolate_method !== '') params.append('interpolate_method', interpolate_method);
     if (return_char_alignments) params.append('return_char_alignments', 'true');
     
     // 说话人分离参数
-    const min_speakers = getElement(`${prefix}-min_speakers`)?.value;
-    const max_speakers = getElement(`${prefix}-max_speakers`)?.value;
+    const min_speakers = getValue(`${prefix}-min_speakers`);
+    const max_speakers = getValue(`${prefix}-max_speakers`);
     
-    if (min_speakers) params.append('min_speakers', min_speakers);
-    if (max_speakers) params.append('max_speakers', max_speakers);
+    if (min_speakers !== null && min_speakers !== '') params.append('min_speakers', min_speakers);
+    if (max_speakers !== null && max_speakers !== '') params.append('max_speakers', max_speakers);
     
     // ASR选项
-    const beam_size = getElement(`${prefix}-beam_size`)?.value;
-    const best_of = getElement(`${prefix}-best_of`)?.value;
-    const patience = getElement(`${prefix}-patience`)?.value;
-    const length_penalty = getElement(`${prefix}-length_penalty`)?.value;
-    const temperatures = getElement(`${prefix}-temperatures`)?.value;
-    const compression_ratio_threshold = getElement(`${prefix}-compression_ratio_threshold`)?.value;
-    const log_prob_threshold = getElement(`${prefix}-log_prob_threshold`)?.value;
-    const no_speech_threshold = getElement(`${prefix}-no_speech_threshold`)?.value;
-    const initial_prompt = getElement(`${prefix}-initial_prompt`)?.value;
-    const suppress_tokens = getElement(`${prefix}-suppress_tokens`)?.value;
+    const beam_size = getValue(`${prefix}-beam_size`);
+    const best_of = getValue(`${prefix}-best_of`);
+    const patience = getValue(`${prefix}-patience`);
+    const length_penalty = getValue(`${prefix}-length_penalty`);
+    const temperatures = getValue(`${prefix}-temperatures`);
+    const compression_ratio_threshold = getValue(`${prefix}-compression_ratio_threshold`);
+    const log_prob_threshold = getValue(`${prefix}-log_prob_threshold`);
+    const no_speech_threshold = getValue(`${prefix}-no_speech_threshold`);
+    const initial_prompt = getValue(`${prefix}-initial_prompt`);
+    const suppress_tokens = getValue(`${prefix}-suppress_tokens`);
     const suppress_numerals = getElement(`${prefix}-suppress_numerals`)?.checked;
-    const hotwords = getElement(`${prefix}-hotwords`)?.value;
+    const hotwords = getValue(`${prefix}-hotwords`);
     
-    if (beam_size) params.append('beam_size', beam_size);
-    if (best_of) params.append('best_of', best_of);
-    if (patience) params.append('patience', patience);
-    if (length_penalty) params.append('length_penalty', length_penalty);
-    if (temperatures) params.append('temperatures', temperatures);
-    if (compression_ratio_threshold) params.append('compression_ratio_threshold', compression_ratio_threshold);
-    if (log_prob_threshold) params.append('log_prob_threshold', log_prob_threshold);
-    if (no_speech_threshold) params.append('no_speech_threshold', no_speech_threshold);
-    if (initial_prompt) params.append('initial_prompt', initial_prompt);
-    if (suppress_tokens) params.append('suppress_tokens', suppress_tokens);
+    if (beam_size !== null && beam_size !== '') params.append('beam_size', beam_size);
+    if (best_of !== null && best_of !== '') params.append('best_of', best_of);
+    if (patience !== null && patience !== '') params.append('patience', patience);
+    if (length_penalty !== null && length_penalty !== '') params.append('length_penalty', length_penalty);
+    if (temperatures !== null && temperatures !== '') params.append('temperatures', temperatures);
+    if (compression_ratio_threshold !== null && compression_ratio_threshold !== '') params.append('compression_ratio_threshold', compression_ratio_threshold);
+    if (log_prob_threshold !== null && log_prob_threshold !== '') params.append('log_prob_threshold', log_prob_threshold);
+    if (no_speech_threshold !== null && no_speech_threshold !== '') params.append('no_speech_threshold', no_speech_threshold);
+    if (initial_prompt !== null && initial_prompt !== '') params.append('initial_prompt', initial_prompt);
+    if (suppress_tokens !== null && suppress_tokens !== '') params.append('suppress_tokens', suppress_tokens);
     if (suppress_numerals) params.append('suppress_numerals', 'true');
-    if (hotwords) params.append('hotwords', hotwords);
+    if (hotwords !== null && hotwords !== '') params.append('hotwords', hotwords);
     
     // VAD选项
-    const vad_onset = getElement(`${prefix}-vad_onset`)?.value;
-    const vad_offset = getElement(`${prefix}-vad_offset`)?.value;
+    const vad_onset = getValue(`${prefix}-vad_onset`);
+    const vad_offset = getValue(`${prefix}-vad_offset`);
     
-    if (vad_onset) params.append('vad_onset', vad_onset);
-    if (vad_offset) params.append('vad_offset', vad_offset);
+    if (vad_onset !== null && vad_onset !== '') params.append('vad_onset', vad_onset);
+    if (vad_offset !== null && vad_offset !== '') params.append('vad_offset', vad_offset);
     
+    console.log('[collectAllParams] 收集到的参数:', params.toString());
     return params;
 }
 
@@ -577,9 +616,14 @@ async function handleCompletedTask(data) {
     if (startProcessBtn) startProcessBtn.disabled = false;
 }
 
+// 视频时间更新处理函数（全局变量，用于正确移除事件监听器）
+let currentTimeUpdateHandler = null;
+
 // 显示转录文本
 function displayTranscript(segments, transcriptContent, videoPlayer) {
     if (!segments || !Array.isArray(segments) || !transcriptContent) return;
+    
+    console.log('[displayTranscript] 开始显示转录文本，段落数:', segments.length);
     
     transcriptContent.innerHTML = segments.map((segment, index) => {
         const startTime = formatTime(segment.start);
@@ -608,12 +652,13 @@ function displayTranscript(segments, transcriptContent, videoPlayer) {
     // 视频播放时高亮对应文本
     if (videoPlayer) {
         // 移除之前的事件监听器（如果存在）
-        videoPlayer.removeEventListener('timeupdate', handleTimeUpdate);
+        if (currentTimeUpdateHandler) {
+            videoPlayer.removeEventListener('timeupdate', currentTimeUpdateHandler);
+            currentTimeUpdateHandler = null;
+        }
         
-        // 添加新的事件监听器
-        videoPlayer.addEventListener('timeupdate', handleTimeUpdate);
-        
-        function handleTimeUpdate() {
+        // 创建新的事件处理函数
+        currentTimeUpdateHandler = () => {
             const currentTime = videoPlayer.currentTime;
             transcriptContent.querySelectorAll('.transcript-segment').forEach(segment => {
                 const start = parseFloat(segment.dataset.start);
@@ -624,7 +669,11 @@ function displayTranscript(segments, transcriptContent, videoPlayer) {
                     segment.classList.remove('active');
                 }
             });
-        }
+        };
+        
+        // 添加新的事件监听器
+        videoPlayer.addEventListener('timeupdate', currentTimeUpdateHandler);
+        console.log('[displayTranscript] 已添加视频时间更新监听器');
     }
 }
 
@@ -669,6 +718,54 @@ function downloadJson(prefix = '') {
 
 // 初始化事件监听器
 function initEventListeners() {
+    console.log('[initEventListeners] 开始初始化事件监听器');
+    
+    // Tab 切换功能
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const tab = btn.dataset.tab;
+            console.log('[Tab切换] 切换到:', tab);
+            
+            // 更新Tab按钮状态
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            
+            // 更新Tab内容
+            document.querySelectorAll('.tab-content').forEach(content => {
+                content.classList.remove('active');
+                content.style.display = 'none';
+            });
+            
+            const targetTab = document.getElementById(`${tab}-tab`);
+            if (targetTab) {
+                targetTab.classList.add('active');
+                targetTab.style.display = 'block';
+                console.log('[Tab切换] Tab内容已显示:', tab);
+            } else {
+                console.warn('[Tab切换] Tab内容未找到:', `${tab}-tab`);
+            }
+        });
+    });
+    
+    // 折叠参数组功能
+    document.querySelectorAll('.collapsible-header').forEach(header => {
+        header.addEventListener('click', () => {
+            const content = header.nextElementSibling;
+            const icon = header.querySelector('.toggle-icon');
+            
+            if (content) {
+                const isHidden = content.style.display === 'none' || !content.style.display;
+                content.style.display = isHidden ? 'block' : 'none';
+                
+                if (icon) {
+                    icon.textContent = isHidden ? '▲' : '▼';
+                }
+                
+                console.log('[折叠参数组] 切换状态:', isHidden ? '展开' : '折叠');
+            }
+        });
+    });
+    
     // 文件上传区域
     const uploadArea = getElement('uploadArea');
     const fileInput = getElement('fileInput');
@@ -711,6 +808,8 @@ function initEventListeners() {
             }
         });
     }
+    
+    console.log('[initEventListeners] 事件监听器初始化完成');
 }
 
 // ============================================================================
