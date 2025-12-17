@@ -3,7 +3,7 @@
 // ============================================================================
 // 每次修改文件时更新这个hash值，确保浏览器加载最新版本
 // Hash值基于文件关键内容生成，每次修改后更新
-const APP_JS_HASH = 'v2.0.9-fixed-stack-overflow-setTimeout'; // 文件内容hash标识
+const APP_JS_HASH = 'v2.1.0-complete-rewrite-safe'; // 文件内容hash标识
 const APP_JS_VERSION = '2.0.7-' + Date.now();
 const APP_JS_BUILD_TIME = new Date().toISOString();
 
@@ -13,7 +13,7 @@ console.log('[App.js] 版本:', APP_JS_VERSION);
 console.log('[App.js] Hash标识:', APP_JS_HASH);
 console.log('[App.js] 构建时间:', APP_JS_BUILD_TIME);
 console.log('[App.js] 加载时间:', new Date().toLocaleString());
-console.log('[App.js] 如果Hash标识不是 v2.0.9-fixed-stack-overflow-setTimeout，说明文件未更新');
+console.log('[App.js] 如果Hash标识不是 v2.1.0-complete-rewrite-safe，说明文件未更新');
 console.log('========================================');
 
 // 语法检查：如果这行代码能执行，说明前面的代码没有语法错误
@@ -114,12 +114,22 @@ function formatTimeVTT(seconds) {
 
 // 处理文件选择
 function handleFileSelect(e) {
-    if (e.target.files && e.target.files.length > 0) {
-        handleFile(e.target.files[0]);
+    // 防止重复调用
+    if (isHandlingFile) {
+        console.warn('[handleFileSelect] 正在处理文件，忽略重复调用');
+        return;
+    }
+    
+    const files = e.target.files;
+    if (files && files.length > 0) {
+        // 使用 setTimeout 确保异步执行
+        setTimeout(() => {
+            handleFile(files[0]);
+        }, 0);
     }
 }
 
-// 处理文件
+// 处理文件 - 完全重写，避免任何递归
 function handleFile(file) {
     // 防止重复调用 - 在函数最开始检查
     if (isHandlingFile) {
@@ -137,39 +147,39 @@ function handleFile(file) {
     
     console.log('[handleFile] 处理文件:', file.name, '大小:', (file.size / 1024 / 1024).toFixed(2), 'MB', '类型:', file.type);
     
-    // 保存文件引用，避免在异步操作中丢失
+    // 保存文件引用
     currentFile = file;
     
-    // 预先计算所有需要的值，避免在异步回调中计算
+    // 预先计算所有需要的值
     const fileSelectedText = (window.t ? window.t('fileSelected') : 'fileSelected');
     const fileSizeText = (window.t ? window.t('fileSize') : 'fileSize');
     const fileSizeMB = (file.size / 1024 / 1024).toFixed(2);
     const fileName = file.name;
-    const fileType = file.type;
     
-    // 使用 setTimeout 确保所有操作都在下一个事件循环中执行，完全避免同步递归
-    setTimeout(() => {
-        // 再次检查标志，防止在延迟期间被重复调用
+    // 使用 requestIdleCallback 或 setTimeout 确保完全异步
+    const scheduleUpdate = (callback) => {
+        if (window.requestIdleCallback) {
+            window.requestIdleCallback(callback, { timeout: 100 });
+        } else {
+            setTimeout(callback, 0);
+        }
+    };
+    
+    scheduleUpdate(() => {
+        // 再次检查标志
         if (!isHandlingFile) {
-            console.warn('[handleFile] 标志已被重置，跳过执行');
             return;
         }
         
         try {
-            // DOM 操作 - 使用 try-catch 包装
+            // DOM 操作
             const uploadArea = getElement('uploadArea');
             if (uploadArea) {
-                // 移除现有内容
                 const existingContent = uploadArea.querySelector('.upload-content');
                 if (existingContent) {
-                    try {
-                        existingContent.remove();
-                    } catch (e) {
-                        console.warn('[handleFile] 移除现有内容失败:', e);
-                    }
+                    existingContent.remove();
                 }
                 
-                // 创建新元素
                 const newContent = document.createElement('div');
                 newContent.className = 'upload-content';
                 
@@ -182,51 +192,39 @@ function handleFile(file) {
                 
                 newContent.appendChild(nameP);
                 newContent.appendChild(sizeP);
-                
-                // 添加到DOM
-                try {
-                    uploadArea.appendChild(newContent);
-                } catch (e) {
-                    console.error('[handleFile] 添加内容到DOM失败:', e);
-                }
+                uploadArea.appendChild(newContent);
             }
             
-            // 显示配置区域
             const configSection = getElement('os-configSection');
             if (configSection) {
-                try {
-                    configSection.style.display = 'block';
-                } catch (e) {
-                    console.warn('[handleFile] 显示配置区域失败:', e);
-                }
+                configSection.style.display = 'block';
             }
             
-            // 延迟处理视频预览，使用额外的延迟确保完全异步
-            setTimeout(() => {
+            // 处理视频预览 - 使用独立的异步调用
+            scheduleUpdate(() => {
                 try {
-                    if (!isPreviewing && !isCleaningUp && isHandlingFile) {
+                    if (!isPreviewing && !isCleaningUp) {
                         handleVideoPreview(file);
                     }
                 } catch (e) {
                     console.error('[handleFile] 视频预览处理失败:', e);
-                } finally {
-                    // 重置标志
-                    setTimeout(() => {
-                        isHandlingFile = false;
-                    }, 100);
                 }
-            }, 150);
+                
+                // 重置标志
+                scheduleUpdate(() => {
+                    isHandlingFile = false;
+                });
+            });
             
         } catch (error) {
             console.error('[handleFile] 处理文件时出错:', error);
             console.error('[handleFile] 错误堆栈:', error.stack);
-            // 重置标志
-            setTimeout(() => {
+            scheduleUpdate(() => {
                 isHandlingFile = false;
-            }, 100);
+            });
             alert('处理文件时出错: ' + (error.message || String(error)));
         }
-    }, 0);
+    });
 }
 
 // 清理视频资源
@@ -394,7 +392,10 @@ function handleDrop(e) {
     
     const files = e.dataTransfer.files;
     if (files && files.length > 0) {
-        handleFile(files[0]);
+        // 使用 setTimeout 确保异步执行，避免递归
+        setTimeout(() => {
+            handleFile(files[0]);
+        }, 0);
     }
 }
 
@@ -1123,16 +1124,85 @@ function initEventListeners() {
         console.log(`[initEventListeners] 找到 ${collapsibleHeaders.length} 个折叠参数组`);
     }
     
-    // 文件上传区域
+    // 文件上传区域 - 使用克隆节点避免重复绑定
     const uploadArea = getElement('uploadArea');
     const fileInput = getElement('fileInput');
     
     if (uploadArea && fileInput) {
-        uploadArea.addEventListener('click', () => fileInput.click());
-        uploadArea.addEventListener('dragover', handleDragOver);
-        uploadArea.addEventListener('dragleave', handleDragLeave);
-        uploadArea.addEventListener('drop', handleDrop);
-        fileInput.addEventListener('change', handleFileSelect);
+        // 克隆节点以移除所有旧的事件监听器
+        const newUploadArea = uploadArea.cloneNode(true);
+        uploadArea.parentNode.replaceChild(newUploadArea, uploadArea);
+        
+        const newFileInput = fileInput.cloneNode(true);
+        fileInput.parentNode.replaceChild(newFileInput, fileInput);
+        
+        // 重新绑定事件监听器
+        newUploadArea.addEventListener('click', () => {
+            if (!isHandlingFile) {
+                newFileInput.click();
+            }
+        });
+        newUploadArea.addEventListener('dragover', handleDragOver);
+        newUploadArea.addEventListener('dragleave', handleDragLeave);
+        newUploadArea.addEventListener('drop', handleDrop);
+        newFileInput.addEventListener('change', handleFileSelect);
+    }
+    
+    // URL/YouTube URL 上传类型切换
+    const uploadTypeRadios = document.querySelectorAll('input[name="uploadType"]');
+    const urlInput = getElement('urlInput');
+    const youtubeInput = getElement('youtubeInput');
+    
+    console.log('[initEventListeners] 找到上传类型单选按钮:', uploadTypeRadios.length);
+    console.log('[initEventListeners] urlInput 元素:', !!urlInput);
+    console.log('[initEventListeners] youtubeInput 元素:', !!youtubeInput);
+    
+    // 处理上传类型切换的函数
+    const handleUploadTypeChange = (uploadType) => {
+        console.log('[handleUploadTypeChange] 切换上传类型:', uploadType);
+        if (urlInput && youtubeInput) {
+            if (uploadType === 'url') {
+                urlInput.style.display = 'block';
+                youtubeInput.style.display = 'none';
+                console.log('[handleUploadTypeChange] 显示 URL 输入框');
+            } else if (uploadType === 'youtube') {
+                urlInput.style.display = 'none';
+                youtubeInput.style.display = 'block';
+                console.log('[handleUploadTypeChange] 显示 YouTube 输入框');
+            } else {
+                urlInput.style.display = 'none';
+                youtubeInput.style.display = 'none';
+                console.log('[handleUploadTypeChange] 隐藏所有输入框');
+            }
+        } else {
+            console.warn('[handleUploadTypeChange] urlInput 或 youtubeInput 未找到');
+        }
+    };
+    
+    if (uploadTypeRadios.length > 0) {
+        uploadTypeRadios.forEach(radio => {
+            radio.addEventListener('change', (e) => {
+                const uploadType = e.target.value;
+                handleUploadTypeChange(uploadType);
+            });
+        });
+        
+        // 初始化显示状态
+        const checkedRadio = document.querySelector('input[name="uploadType"]:checked');
+        if (checkedRadio) {
+            const uploadType = checkedRadio.value;
+            console.log('[initEventListeners] 初始上传类型:', uploadType);
+            handleUploadTypeChange(uploadType);
+        } else {
+            console.warn('[initEventListeners] 未找到选中的上传类型单选按钮');
+            // 默认隐藏所有输入框
+            if (urlInput && youtubeInput) {
+                urlInput.style.display = 'none';
+                youtubeInput.style.display = 'none';
+            }
+        }
+    } else {
+        console.warn('[initEventListeners] 未找到上传类型单选按钮');
     }
     
     // 开始处理按钮
