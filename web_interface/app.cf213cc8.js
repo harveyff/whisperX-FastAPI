@@ -3,7 +3,7 @@
 // ============================================================================
 // 每次修改文件时更新这个hash值，确保浏览器加载最新版本
 // Hash值基于文件关键内容生成，每次修改后更新
-const APP_JS_HASH = 'v2.0.8-fixed-stack-overflow-promise'; // 文件内容hash标识
+const APP_JS_HASH = 'v2.0.9-fixed-stack-overflow-setTimeout'; // 文件内容hash标识
 const APP_JS_VERSION = '2.0.7-' + Date.now();
 const APP_JS_BUILD_TIME = new Date().toISOString();
 
@@ -13,7 +13,7 @@ console.log('[App.js] 版本:', APP_JS_VERSION);
 console.log('[App.js] Hash标识:', APP_JS_HASH);
 console.log('[App.js] 构建时间:', APP_JS_BUILD_TIME);
 console.log('[App.js] 加载时间:', new Date().toLocaleString());
-console.log('[App.js] 如果Hash标识不是 v2.0.8-fixed-stack-overflow-promise，说明文件未更新');
+console.log('[App.js] 如果Hash标识不是 v2.0.9-fixed-stack-overflow-setTimeout，说明文件未更新');
 console.log('========================================');
 
 // 语法检查：如果这行代码能执行，说明前面的代码没有语法错误
@@ -137,30 +137,44 @@ function handleFile(file) {
     
     console.log('[handleFile] 处理文件:', file.name, '大小:', (file.size / 1024 / 1024).toFixed(2), 'MB', '类型:', file.type);
     
-    // 使用 Promise 包装异步操作，确保错误处理和标志重置
-    Promise.resolve().then(() => {
+    // 保存文件引用，避免在异步操作中丢失
+    currentFile = file;
+    
+    // 预先计算所有需要的值，避免在异步回调中计算
+    const fileSelectedText = (window.t ? window.t('fileSelected') : 'fileSelected');
+    const fileSizeText = (window.t ? window.t('fileSize') : 'fileSize');
+    const fileSizeMB = (file.size / 1024 / 1024).toFixed(2);
+    const fileName = file.name;
+    const fileType = file.type;
+    
+    // 使用 setTimeout 确保所有操作都在下一个事件循环中执行，完全避免同步递归
+    setTimeout(() => {
+        // 再次检查标志，防止在延迟期间被重复调用
+        if (!isHandlingFile) {
+            console.warn('[handleFile] 标志已被重置，跳过执行');
+            return;
+        }
+        
         try {
-            currentFile = file;
-            
-            // 先获取翻译文本，避免在DOM操作时调用
-            const fileSelectedText = (window.t ? window.t('fileSelected') : 'fileSelected');
-            const fileSizeText = (window.t ? window.t('fileSize') : 'fileSize');
-            const fileSizeMB = (file.size / 1024 / 1024).toFixed(2);
-            
+            // DOM 操作 - 使用 try-catch 包装
             const uploadArea = getElement('uploadArea');
             if (uploadArea) {
-                // 使用textContent而不是innerHTML，避免触发事件
+                // 移除现有内容
                 const existingContent = uploadArea.querySelector('.upload-content');
                 if (existingContent) {
-                    existingContent.remove();
+                    try {
+                        existingContent.remove();
+                    } catch (e) {
+                        console.warn('[handleFile] 移除现有内容失败:', e);
+                    }
                 }
                 
-                // 创建新元素，但不立即添加到DOM
+                // 创建新元素
                 const newContent = document.createElement('div');
                 newContent.className = 'upload-content';
                 
                 const nameP = document.createElement('p');
-                nameP.textContent = `${fileSelectedText}: ${file.name}`;
+                nameP.textContent = `${fileSelectedText}: ${fileName}`;
                 
                 const sizeP = document.createElement('p');
                 sizeP.className = 'file-hint';
@@ -169,42 +183,50 @@ function handleFile(file) {
                 newContent.appendChild(nameP);
                 newContent.appendChild(sizeP);
                 
-                // 同步添加到DOM，避免异步操作导致的问题
-                uploadArea.appendChild(newContent);
+                // 添加到DOM
+                try {
+                    uploadArea.appendChild(newContent);
+                } catch (e) {
+                    console.error('[handleFile] 添加内容到DOM失败:', e);
+                }
             }
             
+            // 显示配置区域
             const configSection = getElement('os-configSection');
             if (configSection) {
-                configSection.style.display = 'block';
+                try {
+                    configSection.style.display = 'block';
+                } catch (e) {
+                    console.warn('[handleFile] 显示配置区域失败:', e);
+                }
             }
             
-            // 延迟处理视频预览，使用单次延迟确保异步执行
-            return new Promise((resolve) => {
-                setTimeout(() => {
-                    try {
-                        if (!isPreviewing && !isCleaningUp) {
-                            handleVideoPreview(file);
-                        }
-                    } catch (e) {
-                        console.error('[handleFile] 视频预览处理失败:', e);
+            // 延迟处理视频预览，使用额外的延迟确保完全异步
+            setTimeout(() => {
+                try {
+                    if (!isPreviewing && !isCleaningUp && isHandlingFile) {
+                        handleVideoPreview(file);
                     }
-                    resolve();
-                }, 100);
-            });
+                } catch (e) {
+                    console.error('[handleFile] 视频预览处理失败:', e);
+                } finally {
+                    // 重置标志
+                    setTimeout(() => {
+                        isHandlingFile = false;
+                    }, 100);
+                }
+            }, 150);
+            
         } catch (error) {
             console.error('[handleFile] 处理文件时出错:', error);
             console.error('[handleFile] 错误堆栈:', error.stack);
-            throw error;
+            // 重置标志
+            setTimeout(() => {
+                isHandlingFile = false;
+            }, 100);
+            alert('处理文件时出错: ' + (error.message || String(error)));
         }
-    }).catch((error) => {
-        console.error('[handleFile] 异步处理失败:', error);
-        alert('处理文件时出错: ' + (error.message || String(error)));
-    }).finally(() => {
-        // 确保标志在所有情况下都被重置
-        setTimeout(() => {
-            isHandlingFile = false;
-        }, 200);
-    });
+    }, 0);
 }
 
 // 清理视频资源
