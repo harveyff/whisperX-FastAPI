@@ -3,7 +3,7 @@
 // ============================================================================
 // 每次修改文件时更新这个hash值，确保浏览器加载最新版本
 // Hash值基于文件关键内容生成，每次修改后更新
-const APP_JS_HASH = 'v2.1.0-complete-rewrite-safe'; // 文件内容hash标识
+const APP_JS_HASH = 'v2.2.0-fixed-startProcessing-stack-overflow'; // 文件内容hash标识
 const APP_JS_VERSION = '2.0.7-' + Date.now();
 const APP_JS_BUILD_TIME = new Date().toISOString();
 
@@ -13,7 +13,7 @@ console.log('[App.js] 版本:', APP_JS_VERSION);
 console.log('[App.js] Hash标识:', APP_JS_HASH);
 console.log('[App.js] 构建时间:', APP_JS_BUILD_TIME);
 console.log('[App.js] 加载时间:', new Date().toLocaleString());
-console.log('[App.js] 如果Hash标识不是 v2.1.0-complete-rewrite-safe，说明文件未更新');
+console.log('[App.js] 如果Hash标识不是 v2.2.0-fixed-startProcessing-stack-overflow，说明文件未更新');
 console.log('========================================');
 
 // 语法检查：如果这行代码能执行，说明前面的代码没有语法错误
@@ -405,20 +405,17 @@ function handleDrop(e) {
 
 // 收集所有参数
 function collectAllParams(prefix) {
-    console.log('[collectAllParams] 开始收集参数，前缀:', prefix);
     const params = new URLSearchParams();
     
     // 辅助函数：安全获取值
     const getValue = (id, defaultValue = null) => {
         const element = getElement(id);
         if (!element) {
-            console.warn(`[collectAllParams] 元素未找到: ${id}`);
             return defaultValue;
         }
         // 对于 input 元素，即使 value 是空字符串或 "0"，也应该返回实际值
         // 只有当元素不存在时才返回 defaultValue
         const value = element.value !== undefined ? element.value : defaultValue;
-        console.log(`[collectAllParams] ${id}:`, value, '(元素存在:', !!element, ', 类型:', element.type || element.tagName, ')');
         return value;
     };
     
@@ -498,7 +495,6 @@ function collectAllParams(prefix) {
     if (vad_onset !== null && vad_onset !== '') params.append('vad_onset', vad_onset);
     if (vad_offset !== null && vad_offset !== '') params.append('vad_offset', vad_offset);
     
-    console.log('[collectAllParams] 收集到的参数:', params.toString());
     return params;
 }
 
@@ -506,58 +502,97 @@ function collectAllParams(prefix) {
 // 处理流程相关函数
 // ============================================================================
 
-// 开始处理
+// 开始处理 - 完全重写，避免任何递归
 async function startProcessing() {
-    // 防止重复提交
+    // 立即检查并设置标志，防止重复调用
     if (isProcessing) {
         console.warn('[startProcessing] 正在处理中，忽略重复请求');
         return;
     }
     
-    // 检查上传类型
-    const uploadType = document.querySelector('input[name="uploadType"]:checked')?.value || 'file';
-    const urlInput = getElement('urlInput');
-    const youtubeInput = getElement('youtubeInput');
-    
-    // 验证输入
-    if (uploadType === 'file' && !currentFile) {
-        alert(t('selectFile'));
-        return;
-    } else if (uploadType === 'url' && (!urlInput || !urlInput.value.trim())) {
-        alert(t('enterUrl'));
-        return;
-    } else if (uploadType === 'youtube' && (!youtubeInput || !youtubeInput.value.trim())) {
-        alert(t('enterYouTubeUrl'));
-        return;
-    }
-    
-    // 检查文件大小（可选，如果文件太大可以提示）
-    if (uploadType === 'file' && currentFile) {
-        const fileSizeMB = currentFile.size / 1024 / 1024;
-        console.log('[startProcessing] 文件大小:', fileSizeMB.toFixed(2), 'MB');
-        if (fileSizeMB > 500) {
-            if (!confirm(`文件较大 (${fileSizeMB.toFixed(2)} MB)，上传可能需要较长时间，是否继续？`)) {
-                return;
-            }
-        }
-    }
-
-    // 更新UI状态
-    const startProcessBtn = getElement('os-startProcessBtn');
-    const configSection = document.querySelector('#one-step-tab .section:nth-of-type(2)');
-    const progressSection = getElement('os-progressSection');
-    const resultSection = getElement('os-resultSection');
-    
+    // 立即设置标志，防止递归
     isProcessing = true;
-    if (startProcessBtn) startProcessBtn.disabled = true;
-    if (configSection) configSection.style.display = 'none';
-    if (progressSection) progressSection.style.display = 'block';
-    if (resultSection) resultSection.style.display = 'none';
-
-    // 收集参数
-    const params = collectAllParams('os');
     
+    // 使用 setTimeout 确保所有操作都是异步的
+    return new Promise((resolve) => {
+        setTimeout(async () => {
+            try {
+                // 检查上传类型
+                const uploadType = document.querySelector('input[name="uploadType"]:checked')?.value || 'file';
+                const urlInput = getElement('urlInput');
+                const youtubeInput = getElement('youtubeInput');
+                
+                // 验证输入
+                if (uploadType === 'file' && !currentFile) {
+                    isProcessing = false;
+                    alert(t('selectFile'));
+                    resolve();
+                    return;
+                } else if (uploadType === 'url' && (!urlInput || !urlInput.value.trim())) {
+                    isProcessing = false;
+                    alert(t('enterUrl'));
+                    resolve();
+                    return;
+                } else if (uploadType === 'youtube' && (!youtubeInput || !youtubeInput.value.trim())) {
+                    isProcessing = false;
+                    alert(t('enterYouTubeUrl'));
+                    resolve();
+                    return;
+                }
+                
+                // 检查文件大小（可选，如果文件太大可以提示）
+                if (uploadType === 'file' && currentFile) {
+                    const fileSizeMB = currentFile.size / 1024 / 1024;
+                    if (fileSizeMB > 500) {
+                        if (!confirm(`文件较大 (${fileSizeMB.toFixed(2)} MB)，上传可能需要较长时间，是否继续？`)) {
+                            isProcessing = false;
+                            resolve();
+                            return;
+                        }
+                    }
+                }
+
+                // 更新UI状态 - 使用 requestAnimationFrame 确保异步
+                requestAnimationFrame(() => {
+                    const startProcessBtn = getElement('os-startProcessBtn');
+                    const configSection = document.querySelector('#one-step-tab .section:nth-of-type(2)');
+                    const progressSection = getElement('os-progressSection');
+                    const resultSection = getElement('os-resultSection');
+                    
+                    if (startProcessBtn) startProcessBtn.disabled = true;
+                    if (configSection) configSection.style.display = 'none';
+                    if (progressSection) progressSection.style.display = 'block';
+                    if (resultSection) resultSection.style.display = 'none';
+                    
+                    // 继续处理
+                    processUpload(uploadType, urlInput, youtubeInput, startProcessBtn, progressSection).then(() => {
+                        resolve();
+                    }).catch((error) => {
+                        console.error('[startProcessing] 处理失败:', error);
+                        isProcessing = false;
+                        if (startProcessBtn) startProcessBtn.disabled = false;
+                        if (progressSection) progressSection.style.display = 'none';
+                        alert(t('processingFailed') + ': ' + error.message);
+                        resolve();
+                    });
+                });
+            } catch (error) {
+                console.error('[startProcessing] 初始化失败:', error);
+                isProcessing = false;
+                alert(t('processingFailed') + ': ' + error.message);
+                resolve();
+            }
+        }, 0);
+    });
+}
+
+// 处理上传的独立函数，避免递归
+async function processUpload(uploadType, urlInput, youtubeInput, startProcessBtn, progressSection) {
     try {
+        // 收集参数
+        const params = collectAllParams('os');
+        
+        // 更新进度
         updateProgress(10, t('uploading'));
         
         let response;
@@ -590,8 +625,6 @@ async function startProcessing() {
                 const formData = new FormData();
                 formData.append('file', currentFile);
                 
-                console.log('[startProcessing] 开始上传文件，大小:', (currentFile.size / 1024 / 1024).toFixed(2), 'MB');
-                
                 response = await fetch(`${API_BASE_URL}/speech-to-text?${params}`, {
                     method: 'POST',
                     body: formData,
@@ -611,7 +644,6 @@ async function startProcessing() {
         if (!response.ok) {
             const errorData = await response.json().catch(() => ({}));
             const errorMessage = errorData.detail || errorData.message || `${t('processingFailed')}: ${response.statusText}`;
-            console.error('[startProcessing] 服务器错误:', response.status, errorMessage);
             throw new Error(errorMessage);
         }
 
@@ -627,11 +659,10 @@ async function startProcessing() {
         // 开始轮询任务状态
         pollTaskStatus();
     } catch (error) {
-        console.error('[startProcessing] 处理失败:', error);
         isProcessing = false;
-        alert(t('processingFailed') + ': ' + error.message);
         if (startProcessBtn) startProcessBtn.disabled = false;
         if (progressSection) progressSection.style.display = 'none';
+        throw error;
     }
 }
 
@@ -1205,10 +1236,31 @@ function initEventListeners() {
         console.warn('[initEventListeners] 未找到上传类型单选按钮');
     }
     
-    // 开始处理按钮
+    // 开始处理按钮 - 使用克隆节点避免重复绑定
     const startProcessBtn = getElement('os-startProcessBtn');
     if (startProcessBtn) {
-        startProcessBtn.addEventListener('click', startProcessing);
+        // 克隆节点以移除所有旧的事件监听器
+        const newStartProcessBtn = startProcessBtn.cloneNode(true);
+        startProcessBtn.parentNode.replaceChild(newStartProcessBtn, startProcessBtn);
+        
+        // 添加新的事件监听器，使用防抖
+        let isClicking = false;
+        newStartProcessBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            
+            if (isClicking || isProcessing) {
+                console.warn('[startProcessing] 正在处理中，忽略重复点击');
+                return;
+            }
+            
+            isClicking = true;
+            setTimeout(() => {
+                isClicking = false;
+            }, 1000);
+            
+            startProcessing();
+        });
     }
     
     // 下载按钮
